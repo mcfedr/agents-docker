@@ -3,7 +3,8 @@
 # -v ~/.local/share/fnm_docker/node-versions:/home/agent/.local/share/fnm/node-versions \
 # -v ~/.local/state/fnm_multishells_docker:/home/agent/.local/state/fnm_multishells \
 
-exec docker run --rm -it -w $(pwd) \
+exec docker run --rm -it \
+    -w $(pwd) \
     -v $(pwd):$(pwd):delegated \
     -v ~/.claude_agents:/home/agent/.claude \
     -v ~/.claude.json:/home/agent/.claude.json \
@@ -34,5 +35,7 @@ exec docker run --rm -it -w $(pwd) \
     -e ITERM_SESSION_ID=$ITERM_SESSION_ID \
     -e LC_TERMINAL_VERSION=$LC_TERMINAL_VERSION \
     -e LC_TERMINAL=$LC_TERMINAL \
-    --cap-add=SYS_ADMIN --security-opt seccomp=unconfined \
+    --cap-add=SYS_ADMIN \
+    --security-opt seccomp=unconfined \
+    --net=host \
     mcfedr/agents
