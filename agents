@@ -1,0 +1,38 @@
+#!/usr/bin/env zsh
+# # -v ~/.local/share/fnm_docker/aliases:/home/agent/.local/share/fnm/aliases \
+# -v ~/.local/share/fnm_docker/node-versions:/home/agent/.local/share/fnm/node-versions \
+# -v ~/.local/state/fnm_multishells_docker:/home/agent/.local/state/fnm_multishells \
+
+exec docker run --rm -it -w $(pwd) \
+    -v $(pwd):$(pwd):delegated \
+    -v ~/.claude_agents:/home/agent/.claude \
+    -v ~/.claude.json:/home/agent/.claude.json \
+    -v ~/.codex_agents:/home/agent/.codex \
+    -v ~/.netrc:/home/agent/.netrc:ro \
+    -v ~/.npmrc:/home/agent/.npmrc:ro \
+    -v ~/.gitconfig:/home/agent/.gitconfig:ro \
+    -v ~/.gitconfig-ek:/home/agent/.gitconfig-ek:ro \
+    -v ~/.gitignore_global:/Users/mcfedr/.gitignore_global:ro \
+    -v ~/.ssh:/home/agent/.ssh:ro \
+    -v ~/.config/glab-cli:/home/agent/.config/glab-cli:ro \
+    -v ~/.config/gh:/home/agent/.config/gh:ro \
+    -v ~/.config/acli:/home/agent/.config/acli:ro \
+    -v ~/.config/atuin:/home/agent/.config/atuin:ro \
+    -v ~/.config/starship.toml:/home/agent/.config/starship.toml:ro \
+    -v ~/.aws_agents:/home/agent/.aws \
+    -v ~/.local/share/atuin:/home/agent/.local/share/atuin \
+    -v ~/.config/direnv:/home/agent/.config/direnv:ro \
+    -v ~/.local/share/direnv:/home/agent/.local/share/direnv \
+    -e CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
+    -e STARSHIP_HOSTNAME=1 \
+    -e TERM=$TERM \
+    -e TERM_FEATURES=$TERM_FEATURES \
+    -e TERM_SESSION_ID=$TERM_SESSION_ID \
+    -e TERM_PROGRAM=$TERM_PROGRAM \
+    -e TERM_PROGRAM_VERSION=$TERM_PROGRAM_VERSION \
+    -e ITERM_PROFILE=$ITERM_PROFILE \
+    -e ITERM_SESSION_ID=$ITERM_SESSION_ID \
+    -e LC_TERMINAL_VERSION=$LC_TERMINAL_VERSION \
+    -e LC_TERMINAL=$LC_TERMINAL \
+    --cap-add=SYS_ADMIN --security-opt seccomp=unconfined \
+    mcfedr/agents
