@@ -97,6 +97,29 @@ RUN case "$TARGETPLATFORM" in \
     && rm -f "/tmp/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" ${PRODUCT}_${VERSION}_SHA256SUMS ${PRODUCT}_${VERSION}_SHA256SUMS.sig \
     && apk del .deps
 
+ENV TERRAGRUNT_VERSION=v1.0.1
+RUN case "$TARGETPLATFORM" in \
+        "linux/arm64") TG_ARCH="arm64" ;; \
+        "linux/amd64") TG_ARCH="amd64" ;; \
+        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
+    esac \
+    && apk add --update --virtual .tgdeps --no-cache gnupg \
+    && cd /tmp \
+    && TG_ARCHIVE="terragrunt_linux_${TG_ARCH}.tar.gz" \
+    && TG_BINARY="terragrunt_linux_${TG_ARCH}" \
+    && TG_BASE_URL="https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}" \
+    && curl -fsSLO "${TG_BASE_URL}/${TG_ARCHIVE}" \
+    && curl -fsSLO "${TG_BASE_URL}/SHA256SUMS" \
+    && curl -fsSLO "${TG_BASE_URL}/SHA256SUMS.gpgsig" \
+    && curl -fsSL https://gruntwork.io/.well-known/pgp-key.txt | gpg --import \
+    && gpg --verify SHA256SUMS.gpgsig SHA256SUMS \
+    && grep "  ${TG_ARCHIVE}$" SHA256SUMS | sha256sum -c \
+    && tar -xzf "${TG_ARCHIVE}" \
+    && chmod +x "/tmp/${TG_BINARY}" \
+    && mv "/tmp/${TG_BINARY}" /usr/local/bin/terragrunt \
+    && rm -f "${TG_ARCHIVE}" SHA256SUMS SHA256SUMS.gpgsig \
+    && apk del .tgdeps
+
 RUN addgroup -S agent && adduser -S agent -G agent -s /bin/zsh
 USER agent
 SHELL ["/bin/zsh", "-c"]
