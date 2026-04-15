@@ -32,8 +32,15 @@ RUN apk add --no-cache \
 
 RUN curl -sS https://starship.rs/install.sh | sh -s -- --yes
 
+ARG TARGETPLATFORM
+
 # Atlassian CLI
-RUN curl -LO "https://acli.atlassian.com/linux/latest/acli_linux_arm64/acli" \
+RUN case "$TARGETPLATFORM" in \
+        "linux/arm64") ACLI_PLATFORM="linux_arm64" ;; \
+        "linux/amd64") ACLI_PLATFORM="linux_amd64" ;; \
+        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
+    esac \
+    && curl -LO "https://acli.atlassian.com/linux/latest/${ACLI_PLATFORM}/acli" \
     && chmod +x acli \
     && mv acli /usr/local/bin/acli
 
@@ -70,6 +77,26 @@ RUN echo 'export IT2_TAB_COLOR=FF0000' >> /.envrc
 # Codex
 RUN npm i -g @openai/codex
 
+ENV PRODUCT=terraform
+ENV VERSION=1.14.8
+RUN case "$TARGETPLATFORM" in \
+        "linux/arm64") TF_PLATFORM="linux_arm64" ;; \
+        "linux/amd64") TF_PLATFORM="linux_amd64" ;; \
+        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
+    esac \
+    && apk add --update --virtual .deps --no-cache gnupg unzip \
+    && cd /tmp \
+    && wget "https://releases.hashicorp.com/${PRODUCT}/${VERSION}/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" \
+    && wget "https://releases.hashicorp.com/${PRODUCT}/${VERSION}/${PRODUCT}_${VERSION}_SHA256SUMS" \
+    && wget "https://releases.hashicorp.com/${PRODUCT}/${VERSION}/${PRODUCT}_${VERSION}_SHA256SUMS.sig" \
+    && wget -qO- https://www.hashicorp.com/.well-known/pgp-key.txt | gpg --import \
+    && gpg --verify ${PRODUCT}_${VERSION}_SHA256SUMS.sig ${PRODUCT}_${VERSION}_SHA256SUMS \
+    && grep "${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" ${PRODUCT}_${VERSION}_SHA256SUMS | sha256sum -c \
+    && unzip "/tmp/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" -d /tmp \
+    && mv /tmp/${PRODUCT} /usr/local/bin/${PRODUCT} \
+    && rm -f "/tmp/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" ${PRODUCT}_${VERSION}_SHA256SUMS ${PRODUCT}_${VERSION}_SHA256SUMS.sig \
+    && apk del .deps
+
 RUN addgroup -S agent && adduser -S agent -G agent -s /bin/zsh
 USER agent
 SHELL ["/bin/zsh", "-c"]
@@ -95,6 +122,8 @@ RUN curl -L https://iterm2.com/shell_integration/zsh \
 
 COPY tab_color.zsh /home/agent/.tab_color.zsh
 RUN echo 'source ~/.tab_color.zsh' >> ~/.zshrc
+
+RUN echo 'export AWS_PAGER=""' >> ~/.zshrc
 
 WORKDIR /home/agent
 ENTRYPOINT ["zsh", "--login"]

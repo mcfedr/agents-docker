@@ -24,6 +24,8 @@ exec docker run --rm -it \
     -v ~/.local/share/atuin:/home/agent/.local/share/atuin \
     -v ~/.config/direnv:/home/agent/.config/direnv:ro \
     -v ~/.local/share/direnv:/home/agent/.local/share/direnv \
+    -v ~/.terraformrc:/home/agent/.terraformrc:ro \
+    -v ~/.terraform_d_agents:/home/agent/.terraform.d \
     -e CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
     -e STARSHIP_HOSTNAME=1 \
     -e TERM=$TERM \
