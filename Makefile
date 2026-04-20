@@ -10,8 +10,8 @@ install:
 	mkdir -p $(HOME_DIR)/.aws_agents
 	mkdir -p $(HOME_DIR)/.terraform_d_agents/plugin-cache
 	mkdir -p $(HOME_DIR)/.ssh
-	mkdir -p $(HOME_DIR)/.config/glab-cli
-	mkdir -p $(HOME_DIR)/.config/gh
+	mkdir -p $(HOME_DIR)/.config/glab-cli_agents
+	mkdir -p $(HOME_DIR)/.config/gh_agents
 	mkdir -p $(HOME_DIR)/.config/acli
 	mkdir -p $(HOME_DIR)/.config/atuin
 	mkdir -p $(HOME_DIR)/.config/direnv

@@ -15,8 +15,8 @@ exec docker run --rm -it \
     -v ~/.gitconfig-ek:/home/agent/.gitconfig-ek:ro \
     -v ~/.gitignore_global:/Users/mcfedr/.gitignore_global:ro \
     -v ~/.ssh:/home/agent/.ssh:ro \
-    -v ~/.config/glab-cli:/home/agent/.config/glab-cli:ro \
-    -v ~/.config/gh:/home/agent/.config/gh:ro \
+    -v ~/.config/glab-cli_agents:/home/agent/.config/glab-cli \
+    -v ~/.config/gh_agents:/home/agent/.config/gh \
     -v ~/.config/acli:/home/agent/.config/acli:ro \
     -v ~/.config/atuin:/home/agent/.config/atuin:ro \
     -v ~/.config/starship.toml:/home/agent/.config/starship.toml:ro \
