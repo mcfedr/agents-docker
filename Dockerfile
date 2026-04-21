@@ -6,6 +6,7 @@ RUN apk add --no-cache \
     aws-cli-zsh-completion \
     bash \
     bubblewrap \
+    ca-certificates \
     clang-extra-tools \
     curl \
     difftastic \
@@ -13,7 +14,6 @@ RUN apk add --no-cache \
     git \
     github-cli \
     glab \
-    go \
     jq \
     libgcc \
     libstdc++ \
@@ -100,7 +100,13 @@ RUN case "$TARGETPLATFORM" in \
     && rm -f "${TG_ARCHIVE}" SHA256SUMS SHA256SUMS.gpgsig \
     && apk del .tgdeps
 
-RUN wget -O- -nv https://golangci-lint.run/install.sh | sh -s v2.11.4
+RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s v2.11.4
+
+ENV GO_VERSION=1.26.2
+RUN apk add --no-cache curl tar ca-certificates \
+    && curl -L "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz \
+    && tar -C /usr/local -xzf /tmp/go.tar.gz \
+    && rm /tmp/go.tar.gz
 
 # Claude CLI
 RUN curl -fsSL https://claude.ai/install.sh | bash \
@@ -146,6 +152,9 @@ COPY tab_color.zsh /home/agent/.tab_color.zsh
 RUN echo 'source ~/.tab_color.zsh' >> ~/.zshrc
 
 RUN echo 'export AWS_PAGER=""' >> ~/.zshrc
+
+RUN echo 'export PATH="/usr/local/go/bin:$PATH"' >> ~/.zshrc
+RUN echo 'export USE_BUILTIN_RIPGREP=0' >> ~/.zshrc
 
 WORKDIR /home/agent
 ENTRYPOINT ["zsh", "--login"]
