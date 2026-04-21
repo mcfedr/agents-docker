@@ -6,6 +6,7 @@ RUN apk add --no-cache \
     aws-cli-zsh-completion \
     bash \
     bubblewrap \
+    clang-extra-tools \
     curl \
     difftastic \
     direnv \
@@ -23,6 +24,7 @@ RUN apk add --no-cache \
     npm \
     pnpm \
     postgresql18-client \
+    protobuf \
     python3 \
     ripgrep \
     tmux \
@@ -44,38 +46,16 @@ RUN case "$TARGETPLATFORM" in \
     && chmod +x acli \
     && mv acli /usr/local/bin/acli
 
-# Claude CLI
-RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && mv $(readlink ~/.local/bin/claude) /usr/local/bin/claude \
-    && rm ~/.local/bin/claude
-
-ENV USE_BUILTIN_RIPGREP=0
-
-# Gemini CLI
-RUN npm install -g @google/gemini-cli
-
 # SonarQube CLI
 # no arm64 build
 # RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh | bash
     # && mv ~/.local/share/sonarqube-cli/bin/sonar /usr/local/bin/sonar
-
-# Copilot CLI
-# checksum fail
-# RUN curl -fsSL https://gh.io/copilot-install | bash
 
 # Atuin CLI
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh \
     && mv ~/.atuin/bin/atuin /usr/local/bin/atuin
 
 RUN echo 'export IT2_TAB_COLOR=FF0000' >> /.envrc
-
-# RUN curl -LO https://github.com/openai/codex/releases/download/rust-v0.118.0/codex-aarch64-unknown-linux-musl.tar.gz \
-#     && tar -xzf codex-aarch64-unknown-linux-musl.tar.gz \
-#     && mv codex-aarch64-unknown-linux-musl /usr/local/bin/codex \
-#     && rm codex-aarch64-unknown-linux-musl.tar.gz
-
-# Codex
-RUN npm i -g @openai/codex
 
 ENV PRODUCT=terraform
 ENV VERSION=1.14.8
@@ -119,6 +99,25 @@ RUN case "$TARGETPLATFORM" in \
     && mv "/tmp/${TG_BINARY}" /usr/local/bin/terragrunt \
     && rm -f "${TG_ARCHIVE}" SHA256SUMS SHA256SUMS.gpgsig \
     && apk del .tgdeps
+
+RUN wget -O- -nv https://golangci-lint.run/install.sh | sh -s v2.11.4
+
+# Claude CLI
+RUN curl -fsSL https://claude.ai/install.sh | bash \
+    && mv $(readlink ~/.local/bin/claude) /usr/local/bin/claude \
+    && rm ~/.local/bin/claude
+
+ENV USE_BUILTIN_RIPGREP=0
+
+# Gemini CLI
+RUN npm install -g @google/gemini-cli
+
+# Codex
+RUN npm i -g @openai/codex
+
+# Copilot CLI
+# checksum fail
+# RUN curl -fsSL https://gh.io/copilot-install | bash
 
 RUN addgroup -S agent && adduser -S agent -G agent -s /bin/zsh
 USER agent
