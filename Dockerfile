@@ -135,8 +135,8 @@ RUN echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
 RUN echo 'bindkey "^[[H" beginning-of-line' >> ~/.zshrc \
     && echo 'bindkey "^[[F" end-of-line' >> ~/.zshrc
 
-RUN echo '"autoload -Uz compinit"' >> ~/.zshrc \
-    && echo '"compinit"' >> ~/.zshrc
+RUN echo 'autoload -Uz compinit' >> ~/.zshrc \
+    && echo 'compinit' >> ~/.zshrc
 
 RUN curl -L https://iterm2.com/shell_integration/zsh \
     -o ~/.iterm2_shell_integration.zsh \
