@@ -19,6 +19,7 @@ RUN apk add --no-cache \
     libstdc++ \
     make \
     mariadb-client \
+    openssh-client \
     nano \
     nodejs \
     npm \
@@ -45,11 +46,6 @@ RUN case "$TARGETPLATFORM" in \
     && curl -LO "https://acli.atlassian.com/linux/latest/${ACLI_PLATFORM}/acli" \
     && chmod +x acli \
     && mv acli /usr/local/bin/acli
-
-# SonarQube CLI
-# no arm64 build
-# RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh | bash
-    # && mv ~/.local/share/sonarqube-cli/bin/sonar /usr/local/bin/sonar
 
 # Atuin CLI
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh \
@@ -124,6 +120,10 @@ RUN npm i -g @openai/codex
 # Copilot CLI
 # checksum fail
 # RUN curl -fsSL https://gh.io/copilot-install | bash
+
+# SonarQube CLI
+# RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh | bash \
+#     && mv ~/.local/share/sonarqube-cli/bin/sonar /usr/local/bin/sonar
 
 RUN addgroup -S agent && adduser -S agent -G agent -s /bin/zsh
 USER agent
