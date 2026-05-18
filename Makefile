@@ -2,14 +2,14 @@ HOME_DIR := $(HOME)
 LOCAL_BIN := $(HOME_DIR)/.local/bin
 
 build:
-	docker build -t mcfedr/agents .
+	docker build --pull -t mcfedr/agents .
 
 install:
 	mkdir -p $(HOME_DIR)/.claude_agents
 	mkdir -p $(HOME_DIR)/.codex_agents
 	mkdir -p $(HOME_DIR)/.aws_agents
 	mkdir -p $(HOME_DIR)/.terraform_d_agents/plugin-cache
-	mkdir -p $(HOME_DIR)/.ssh
+	mkdir -p $(HOME_DIR)/.ssh_agents
 	mkdir -p $(HOME_DIR)/.config/glab-cli_agents
 	mkdir -p $(HOME_DIR)/.config/gh_agents
 	mkdir -p $(HOME_DIR)/.config/acli
@@ -17,8 +17,14 @@ install:
 	mkdir -p $(HOME_DIR)/.config/direnv
 	mkdir -p $(HOME_DIR)/.local/share/atuin
 	mkdir -p $(HOME_DIR)/.local/share/direnv
+	mkdir -p $(HOME_DIR)/.pnpm_agents
+	mkdir -p $(HOME_DIR)/.local/share/fnm_agents
+	mkdir -p $(HOME_DIR)/.local/state/fnm_multishells_agents
+	mkdir -p $(HOME_DIR)/.sonar_agents
+	mkdir -p $(HOME_DIR)/.rustup_agents
+	mkdir -p $(HOME_DIR)/.cargo_agents/bin
 	mkdir -p $(LOCAL_BIN)
-	touch $(HOME_DIR)/.claude.json
+	touch $(HOME_DIR)/.claude_agents.json
 	touch $(HOME_DIR)/.netrc
 	touch $(HOME_DIR)/.npmrc
 	touch $(HOME_DIR)/.gitconfig

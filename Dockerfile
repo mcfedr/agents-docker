@@ -1,3 +1,14 @@
+FROM rust:alpine AS fnm-builder
+RUN apk add --no-cache git
+ARG FNM_REPO=https://github.com/mcfedr/fnm.git
+ARG FNM_BRANCH=arch
+# Bust the cache when the branch advances by baking the resolved commit into the layer.
+ADD https://api.github.com/repos/mcfedr/fnm/commits/arch /tmp/fnm-commit.json
+RUN git clone --depth 1 --branch "$FNM_BRANCH" "$FNM_REPO" /src \
+    && cd /src \
+    && cargo build --release \
+    && strip target/release/fnm
+
 FROM alpine:3
 
 RUN apk add --no-cache \
@@ -14,6 +25,7 @@ RUN apk add --no-cache \
     git \
     github-cli \
     glab \
+    gnupg \
     jq \
     libgcc \
     libstdc++ \
@@ -25,10 +37,12 @@ RUN apk add --no-cache \
     npm \
     pnpm \
     postgresql18-client \
-    protobuf \
+    protobuf-dev \
     python3 \
     ripgrep \
+    rustup \
     tmux \
+    unzip \
     uv \
     zsh \
     zsh-completions
@@ -54,13 +68,12 @@ RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh \
 RUN echo 'export IT2_TAB_COLOR=FF0000' >> /.envrc
 
 ENV PRODUCT=terraform
-ENV VERSION=1.14.8
+ENV VERSION=1.15.3
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") TF_PLATFORM="linux_arm64" ;; \
         "linux/amd64") TF_PLATFORM="linux_amd64" ;; \
         *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
     esac \
-    && apk add --update --virtual .deps --no-cache gnupg unzip \
     && cd /tmp \
     && wget "https://releases.hashicorp.com/${PRODUCT}/${VERSION}/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" \
     && wget "https://releases.hashicorp.com/${PRODUCT}/${VERSION}/${PRODUCT}_${VERSION}_SHA256SUMS" \
@@ -70,16 +83,14 @@ RUN case "$TARGETPLATFORM" in \
     && grep "${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" ${PRODUCT}_${VERSION}_SHA256SUMS | sha256sum -c \
     && unzip "/tmp/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" -d /tmp \
     && mv /tmp/${PRODUCT} /usr/local/bin/${PRODUCT} \
-    && rm -f "/tmp/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" ${PRODUCT}_${VERSION}_SHA256SUMS ${PRODUCT}_${VERSION}_SHA256SUMS.sig \
-    && apk del .deps
+    && rm -f "/tmp/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" ${PRODUCT}_${VERSION}_SHA256SUMS ${PRODUCT}_${VERSION}_SHA256SUMS.sig
 
-ENV TERRAGRUNT_VERSION=v1.0.1
+ENV TERRAGRUNT_VERSION=v1.0.4
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") TG_ARCH="arm64" ;; \
         "linux/amd64") TG_ARCH="amd64" ;; \
         *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
     esac \
-    && apk add --update --virtual .tgdeps --no-cache gnupg \
     && cd /tmp \
     && TG_ARCHIVE="terragrunt_linux_${TG_ARCH}.tar.gz" \
     && TG_BINARY="terragrunt_linux_${TG_ARCH}" \
@@ -93,12 +104,11 @@ RUN case "$TARGETPLATFORM" in \
     && tar -xzf "${TG_ARCHIVE}" \
     && chmod +x "/tmp/${TG_BINARY}" \
     && mv "/tmp/${TG_BINARY}" /usr/local/bin/terragrunt \
-    && rm -f "${TG_ARCHIVE}" SHA256SUMS SHA256SUMS.gpgsig \
-    && apk del .tgdeps
+    && rm -f "${TG_ARCHIVE}" SHA256SUMS SHA256SUMS.gpgsig
 
-RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s v2.11.4
+RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s v2.12.2
 
-ENV GO_VERSION=1.26.2
+ENV GO_VERSION=1.26.3
 RUN apk add --no-cache curl tar ca-certificates \
     && curl -L "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz \
     && tar -C /usr/local -xzf /tmp/go.tar.gz \
@@ -122,17 +132,28 @@ RUN npm i -g @openai/codex
 # RUN curl -fsSL https://gh.io/copilot-install | bash
 
 # SonarQube CLI
-# RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh | bash \
-#     && mv ~/.local/share/sonarqube-cli/bin/sonar /usr/local/bin/sonar
+RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh | bash \
+    && mv ~/.local/share/sonarqube-cli/bin/sonar /usr/local/bin/sonar
 
 RUN addgroup -S agent && adduser -S agent -G agent -s /bin/zsh
 USER agent
 SHELL ["/bin/zsh", "-c"]
 
-# as the user
-ENV FNM_COREPACK_ENABLED=true
-RUN curl -fsSL https://fnm.vercel.app/install | bash \
-    && echo 'eval "$(fnm env --use-on-cd --shell zsh)"' >> ~/.zshrc
+# fnm — custom build from https://github.com/Schniz/fnm/pull/1562
+# adds FNM_ARCH=arm64-musl support for Alpine
+COPY --from=fnm-builder /src/target/release/fnm /usr/local/bin/fnm
+RUN echo 'eval "$(fnm env --use-on-cd --shell zsh)"' >> ~/.zshrc
+
+RUN echo 'export FNM_COREPACK_ENABLED=true' >> ~/.zshrc \
+    && echo 'export FNM_NODE_DIST_MIRROR=https://unofficial-builds.nodejs.org/download/release/' >> ~/.zshrc
+
+RUN case "$TARGETPLATFORM" in \
+        "linux/arm64") echo 'export FNM_ARCH=arm64-musl' >> ~/.zshrc ;; \
+        "linux/amd64") echo 'export FNM_ARCH=x64-musl' >> ~/.zshrc ;; \
+        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
+    esac
+
+RUN echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
 
 RUN echo 'eval "$(starship init zsh)"' >> ~/.zshrc
 RUN echo 'eval "$(atuin init zsh)"' >> ~/.zshrc
@@ -154,6 +175,7 @@ RUN echo 'source ~/.tab_color.zsh' >> ~/.zshrc
 RUN echo 'export AWS_PAGER=""' >> ~/.zshrc
 
 RUN echo 'export PATH="/usr/local/go/bin:$PATH"' >> ~/.zshrc
+RUN echo 'export PATH="$PNPM_HOME/bin:$PATH"' >> ~/.zshrc
 RUN echo 'export USE_BUILTIN_RIPGREP=0' >> ~/.zshrc
 
 WORKDIR /home/agent
