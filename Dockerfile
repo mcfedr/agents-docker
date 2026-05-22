@@ -41,6 +41,8 @@ RUN apk add --no-cache \
     python3 \
     ripgrep \
     rustup \
+    shellcheck \
+    shfmt \
     tmux \
     unzip \
     uv \
@@ -134,6 +136,10 @@ RUN npm i -g @openai/codex
 # SonarQube CLI
 RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh | bash \
     && mv ~/.local/share/sonarqube-cli/bin/sonar /usr/local/bin/sonar
+
+# Bun
+RUN curl -fsSL https://bun.com/install | bash \
+  && mv ~/.bun/bin/bun /usr/local/bin/bun
 
 RUN addgroup -S agent && adduser -S agent -G agent -s /bin/zsh
 USER agent

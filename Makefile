@@ -2,7 +2,7 @@ HOME_DIR := $(HOME)
 LOCAL_BIN := $(HOME_DIR)/.local/bin
 
 build:
-	docker build --pull -t mcfedr/agents .
+	docker build -t mcfedr/agents .
 
 install:
 	mkdir -p $(HOME_DIR)/.claude_agents
