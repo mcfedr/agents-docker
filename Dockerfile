@@ -35,6 +35,7 @@ RUN apk add --no-cache \
     gnupg \
     icu-dev \
     icu-libs \
+    imagemagick \
     jq \
     libcurl \
     libgcc \
@@ -51,6 +52,7 @@ RUN apk add --no-cache \
     python3 \
     python3-dev \
     ripgrep \
+    rsvg-convert \
     rustup \
     shellcheck \
     shfmt \

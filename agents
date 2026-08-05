@@ -92,8 +92,8 @@ if [[ -z "$running" ]]; then
         -v $opencode_config:/home/agent/.config/opencode \
         -v $opencode_share:/home/agent/.local/share/opencode \
         -v $opencode_state:/home/agent/.local/state/opencode \
-        -v $netrc:/home/agent/.netrc:ro \
-        -v $npmrc:/home/agent/.npmrc:ro \
+        -v $netrc:/home/agent/${netrc:t}:ro \
+        -v $npmrc:/home/agent/${npmrc:t}:ro \
         -v ~/.gitconfig:/home/agent/.gitconfig:ro \
         -v ~/.gitconfig-ek:/home/agent/.gitconfig-ek:ro \
         -v ~/.gitconfig-ss:/home/agent/.gitconfig-ss:ro \
@@ -109,7 +109,7 @@ if [[ -z "$running" ]]; then
         -v ~/.config/direnv:/home/agent/.config/direnv:ro \
         -v ~/.local/share/direnv:/home/agent/.local/share/direnv \
         -v ~/.local/share/uv_agents:/home/agent/.local/share/uv \
-        -v $terraformrc:/home/agent/.terraformrc:ro \
+        -v $terraformrc:/home/agent/${terraformrc:t}:ro \
         -v ~/.terraform_d_agents:/home/agent/.terraform.d \
         -v ~/.pnpm:/home/agent/.pnpm \
         -v ~/.local/share/fnm_agents/aliases:/home/agent/.local/share/fnm/aliases \
@@ -120,6 +120,9 @@ if [[ -z "$running" ]]; then
         -v ~/.cargo_agents:/home/agent/.cargo \
         -e PNPM_HOME=/home/agent/.pnpm \
         -e "GIT_SSH_COMMAND=$git_ssh" \
+        -e "NETRC=/home/agent/${netrc:t}" \
+        -e "NPM_CONFIG_USERCONFIG=/home/agent/${npmrc:t}" \
+        -e "TF_CLI_CONFIG_FILE=/home/agent/${terraformrc:t}" \
         -e OLLAMA_HOST=http://host.docker.internal:11434 \
         -e CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
         -e GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
