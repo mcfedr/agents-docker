@@ -4,10 +4,15 @@ ARG FNM_REPO=https://github.com/mcfedr/fnm.git
 ARG FNM_BRANCH=arch
 # Bust the cache when the branch advances by baking the resolved commit into the layer.
 ADD https://api.github.com/repos/mcfedr/fnm/commits/arch /tmp/fnm-commit.json
-RUN git clone --depth 1 --branch "$FNM_BRANCH" "$FNM_REPO" /src \
-    && cd /src \
-    && cargo build --release \
-    && strip target/release/fnm
+RUN git clone --depth 1 --branch "$FNM_BRANCH" "$FNM_REPO" /src
+WORKDIR /src
+# Cache the cargo registry and target dir across builds so only changed crates
+# recompile. The target mount isn't persisted in the layer, so copy the binary out.
+RUN --mount=type=cache,target=/usr/local/cargo/registry \
+    --mount=type=cache,target=/src/target \
+    cargo build --release \
+    && strip target/release/fnm \
+    && cp target/release/fnm /fnm
 
 FROM alpine:3
 
@@ -17,16 +22,21 @@ RUN apk add --no-cache \
     aws-cli-zsh-completion \
     bash \
     bubblewrap \
+    build-base \
     ca-certificates \
     clang-extra-tools \
     curl \
+    curl-dev \
     difftastic \
     direnv \
     git \
     github-cli \
     glab \
     gnupg \
+    icu-dev \
+    icu-libs \
     jq \
+    libcurl \
     libgcc \
     libstdc++ \
     make \
@@ -39,10 +49,12 @@ RUN apk add --no-cache \
     postgresql18-client \
     protobuf-dev \
     python3 \
+    python3-dev \
     ripgrep \
     rustup \
     shellcheck \
     shfmt \
+    socat \
     tmux \
     unzip \
     uv \
@@ -64,13 +76,13 @@ RUN case "$TARGETPLATFORM" in \
     && mv acli /usr/local/bin/acli
 
 # Atuin CLI
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh \
+RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive \
     && mv ~/.atuin/bin/atuin /usr/local/bin/atuin
 
 RUN echo 'export IT2_TAB_COLOR=FF0000' >> /.envrc
 
 ENV PRODUCT=terraform
-ENV VERSION=1.15.3
+ENV VERSION=1.15.7
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") TF_PLATFORM="linux_arm64" ;; \
         "linux/amd64") TF_PLATFORM="linux_amd64" ;; \
@@ -87,7 +99,7 @@ RUN case "$TARGETPLATFORM" in \
     && mv /tmp/${PRODUCT} /usr/local/bin/${PRODUCT} \
     && rm -f "/tmp/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" ${PRODUCT}_${VERSION}_SHA256SUMS ${PRODUCT}_${VERSION}_SHA256SUMS.sig
 
-ENV TERRAGRUNT_VERSION=v1.0.4
+ENV TERRAGRUNT_VERSION=v1.1.0
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") TG_ARCH="arm64" ;; \
         "linux/amd64") TG_ARCH="amd64" ;; \
@@ -110,21 +122,38 @@ RUN case "$TARGETPLATFORM" in \
 
 RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s v2.12.2
 
-ENV GO_VERSION=1.26.3
+# hadolint (Dockerfile linter) — not packaged in the Alpine repos
+ENV HADOLINT_VERSION=v2.15.1
+RUN case "$TARGETPLATFORM" in \
+        "linux/arm64") HADOLINT_ARCH="arm64" ;; \
+        "linux/amd64") HADOLINT_ARCH="x86_64" ;; \
+        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
+    esac \
+    && cd /tmp \
+    && HADOLINT_BASE_URL="https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}" \
+    && curl -fsSLO "${HADOLINT_BASE_URL}/hadolint-linux-${HADOLINT_ARCH}" \
+    && curl -fsSLO "${HADOLINT_BASE_URL}/checksums.sha256" \
+    && grep "hadolint-linux-${HADOLINT_ARCH}$" checksums.sha256 | sha256sum -c \
+    && chmod +x "hadolint-linux-${HADOLINT_ARCH}" \
+    && mv "hadolint-linux-${HADOLINT_ARCH}" /usr/local/bin/hadolint \
+    && rm -f checksums.sha256
+
+ENV GO_VERSION=1.26.4
 RUN apk add --no-cache curl tar ca-certificates \
     && curl -L "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz \
     && tar -C /usr/local -xzf /tmp/go.tar.gz \
     && rm /tmp/go.tar.gz
 
-# Claude CLI
-RUN curl -fsSL https://claude.ai/install.sh | bash \
-    && mv $(readlink ~/.local/bin/claude) /usr/local/bin/claude \
-    && rm ~/.local/bin/claude
+# OpenCode
+RUN npm install -g opencode-ai
 
+# Claude CLI
+RUN npm install -g @anthropic-ai/claude-code
 ENV USE_BUILTIN_RIPGREP=0
 
 # Gemini CLI
-RUN npm install -g @google/gemini-cli
+# RUN npm install -g @google/gemini-cli
+# RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
 
 # Codex
 RUN npm i -g @openai/codex
@@ -141,13 +170,26 @@ RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/he
 RUN curl -fsSL https://bun.com/install | bash \
   && mv ~/.bun/bin/bun /usr/local/bin/bun
 
+# chrome-devtools-mcp bridge to a Chrome running on the host (see script header)
+COPY chrome-devtools-mcp-host /usr/local/bin/chrome-devtools-mcp-host
+RUN chmod +x /usr/local/bin/chrome-devtools-mcp-host
+
+# The working directory is bind-mounted from the host, where it is owned by the
+# host user's UID (e.g. 503) rather than the container's `agent` user (UID 100).
+# Docker Desktop's VirtioFS backend masks this by remapping ownership to the
+# accessing UID, but other file-sharing backends (gRPC-FUSE/osxfs) surface the
+# raw host UID, and git then refuses with "detected dubious ownership in
+# repository". Trust every directory at the system level (read regardless of the
+# read-only ~/.gitconfig mount and by any UID) so git works across backends.
+RUN git config --system --add safe.directory '*'
+
 RUN addgroup -S agent && adduser -S agent -G agent -s /bin/zsh
 USER agent
 SHELL ["/bin/zsh", "-c"]
 
 # fnm — custom build from https://github.com/Schniz/fnm/pull/1562
 # adds FNM_ARCH=arm64-musl support for Alpine
-COPY --from=fnm-builder /src/target/release/fnm /usr/local/bin/fnm
+COPY --from=fnm-builder /fnm /usr/local/bin/fnm
 RUN echo 'eval "$(fnm env --use-on-cd --shell zsh)"' >> ~/.zshrc
 
 RUN echo 'export FNM_COREPACK_ENABLED=true' >> ~/.zshrc \

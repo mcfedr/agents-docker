@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.mcfedr.agents-chrome</string>
+
+	<!-- Delegate to `make chrome` so the supergateway command lives in exactly
+	     one place (the Makefile). Run through a login + interactive shell (-l -i)
+	     so both fnm's PATH setup (usually in .zshrc, interactive-only) and any
+	     login config are sourced and `make`/`supergateway` resolve the same way
+	     they do in your terminal; launchd itself has only a minimal PATH.
+	     __WORKDIR__ is substituted with the repo path by `make chrome-start`. -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/zsh</string>
+		<string>-l</string>
+		<string>-i</string>
+		<string>-c</string>
+		<string>exec make chrome</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>__WORKDIR__</string>
+
+	<!-- Restart on crash. No RunAtLoad: it only starts when we bootstrap it, and
+	     because this plist is NOT in ~/Library/LaunchAgents it does not auto-load
+	     at login, so it does not survive logout/reboot. -->
+	<key>KeepAlive</key>
+	<true/>
+
+	<key>StandardOutPath</key>
+	<string>/tmp/agents-chrome.log</string>
+	<key>StandardErrorPath</key>
+	<string>/tmp/agents-chrome.log</string>
+</dict>
+</plist>

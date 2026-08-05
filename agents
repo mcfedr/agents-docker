@@ -1,39 +1,141 @@
 #!/usr/bin/env zsh
 
-exec docker run --rm -it \
-    -w $(pwd) \
-    -v $(pwd):$(pwd):delegated \
-    -v ~/.claude_agents:/home/agent/.claude \
-    -v ~/.claude_agents.json:/home/agent/.claude.json \
-    -v ~/.codex_agents:/home/agent/.codex \
-    -v ~/.netrc:/home/agent/.netrc:ro \
-    -v ~/.npmrc:/home/agent/.npmrc:ro \
-    -v ~/.gitconfig:/home/agent/.gitconfig:ro \
-    -v ~/.gitconfig-ek:/home/agent/.gitconfig-ek:ro \
-    -v ~/.gitignore_global:/Users/mcfedr/.gitignore_global:ro \
-    -v ~/.ssh_agents:/home/agent/.ssh:ro \
-    -v ~/.config/glab-cli_agents:/home/agent/.config/glab-cli \
-    -v ~/.config/gh_agents:/home/agent/.config/gh \
-    -v ~/.config/acli:/home/agent/.config/acli:ro \
-    -v ~/.config/atuin:/home/agent/.config/atuin:ro \
-    -v ~/.config/starship.toml:/home/agent/.config/starship.toml:ro \
-    -v ~/.aws_agents:/home/agent/.aws \
-    -v ~/.local/share/atuin:/home/agent/.local/share/atuin \
-    -v ~/.config/direnv:/home/agent/.config/direnv:ro \
-    -v ~/.local/share/direnv:/home/agent/.local/share/direnv \
-    -v ~/.terraformrc:/home/agent/.terraformrc:ro \
-    -v ~/.terraform_d_agents:/home/agent/.terraform.d \
-    -v ~/.pnpm:/home/agent/.pnpm \
-    -v ~/.local/share/fnm_agents/aliases:/home/agent/.local/share/fnm/aliases \
-    -v ~/.local/share/fnm_agents/node-versions:/home/agent/.local/share/fnm/node-versions \
-    -v ~/.local/state/fnm_multishells_agents:/home/agent/.local/state/fnm_multishells \
-    -v ~/.sonar_agents:/home/agent/.sonar \
-    -v ~/.rustup_agents:/home/agent/.rustup \
-    -v ~/.cargo_agents:/home/agent/.cargo \
-    -e PNPM_HOME=/home/agent/.pnpm \
-    -e CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
-    -e GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
-    -e STARSHIP_HOSTNAME=1 \
+# One long-lived container per working directory. The container's main process
+# is `sleep infinity`; every `agents` invocation attaches a fresh login shell
+# with `docker exec`. Closing a shell leaves the container running for the next
+# call, so repeated use of the same directory shares a single container.
+#
+# Usage:
+#   agents            attach a shell (creating the container if needed)
+#   agents restart    recreate the container (e.g. to pick up a rebuilt image)
+#   agents stop       stop and remove the container for this directory
+
+case "$(pwd)" in
+$HOME/projects/smartsuite | $HOME/projects/smartsuite/*)
+    claude_dir=~/.claude_agents_smartsuite
+    claude_json=~/.claude_agents_smartsuite.json
+    opencode_config=~/.config/opencode_agents_smartsuite
+    opencode_share=~/.local/share/opencode_agents_smartsuite
+    opencode_state=~/.local/state/opencode_agents_smartsuite
+    gh_dir=~/.config/gh_agents_smartsuite
+    glab_dir=~/.config/glab-cli_agents_smartsuite
+    netrc=~/.netrc_smartsuite
+    npmrc=~/.npmrc_smartsuite
+    terraformrc=~/.terraformrc_smartsuite
+    git_ssh='ssh -i $HOME/.ssh/ss_id_ed25519'
+    ;;
+$HOME/projects | $HOME/projects/*)
+    claude_dir=~/.claude_agents_ekreative
+    claude_json=~/.claude_agents_ekreative.json
+    opencode_config=~/.config/opencode_agents_ekreative
+    opencode_share=~/.local/share/opencode_agents_ekreative
+    opencode_state=~/.local/state/opencode_agents_ekreative
+    gh_dir=~/.config/gh_agents_ekreative
+    glab_dir=~/.config/glab-cli_agents_ekreative
+    netrc=~/.netrc_ekreative
+    npmrc=~/.npmrc_ekreative
+    terraformrc=~/.terraformrc_ekreative
+    git_ssh='ssh -i $HOME/.ssh/ek_id_ed25519'
+    ;;
+*)
+    claude_dir=~/.claude_agents
+    claude_json=~/.claude_agents.json
+    opencode_config=~/.config/opencode_agents
+    opencode_share=~/.local/share/opencode_agents
+    opencode_state=~/.local/state/opencode_agents
+    gh_dir=~/.config/gh_agents
+    glab_dir=~/.config/glab-cli_agents
+    netrc=~/.netrc
+    npmrc=~/.npmrc
+    terraformrc=~/.terraformrc
+    git_ssh='ssh'
+    ;;
+esac
+
+image=mcfedr/agents
+
+# Deterministic, docker-safe container name derived from the working directory.
+dir_hash=$(printf '%s' "$PWD" | shasum -a 256 | cut -c1-12)
+safe_base=$(printf '%s' "${PWD##*/}" | tr -c 'a-zA-Z0-9_.-' '-')
+container="agents-${safe_base}-${dir_hash}"
+
+case "${1:-}" in
+stop)
+    if docker rm -f "$container" >/dev/null 2>&1; then
+        echo "stopped $container"
+    else
+        echo "no container for $PWD"
+    fi
+    exit 0
+    ;;
+restart)
+    docker rm -f "$container" >/dev/null 2>&1
+    ;;
+esac
+
+running=$(docker ps -q -f "name=^${container}$")
+exists=$(docker ps -aq -f "name=^${container}$")
+
+if [[ -z "$running" ]]; then
+    # Clear out a stale (non-running) container of the same name, then create a
+    # fresh detached one holding all the mounts, caps and static environment.
+    [[ -n "$exists" ]] && docker rm -f "$container" >/dev/null 2>&1
+    print -u2 "starting $container for $PWD"
+    docker run -d --rm --name "$container" \
+        --entrypoint sleep \
+        -w "$PWD" \
+        -v $(pwd):$(pwd):delegated \
+        -v $claude_dir:/home/agent/.claude \
+        -v ~/.claude/CLAUDE.md:/home/agent/.claude/CLAUDE.md:ro \
+        -v $claude_json:/home/agent/.claude.json \
+        -v ~/.codex_agents:/home/agent/.codex \
+        -v $opencode_config:/home/agent/.config/opencode \
+        -v $opencode_share:/home/agent/.local/share/opencode \
+        -v $opencode_state:/home/agent/.local/state/opencode \
+        -v $netrc:/home/agent/.netrc:ro \
+        -v $npmrc:/home/agent/.npmrc:ro \
+        -v ~/.gitconfig:/home/agent/.gitconfig:ro \
+        -v ~/.gitconfig-ek:/home/agent/.gitconfig-ek:ro \
+        -v ~/.gitconfig-ss:/home/agent/.gitconfig-ss:ro \
+        -v ~/.gitignore_global:/Users/mcfedr/.gitignore_global:ro \
+        -v ~/.ssh_agents:/home/agent/.ssh:ro \
+        -v $glab_dir:/home/agent/.config/glab-cli \
+        -v $gh_dir:/home/agent/.config/gh \
+        -v ~/.config/acli:/home/agent/.config/acli:ro \
+        -v ~/.config/atuin:/home/agent/.config/atuin:ro \
+        -v ~/.config/starship.toml:/home/agent/.config/starship.toml:ro \
+        -v ~/.aws_agents:/home/agent/.aws \
+        -v ~/.local/share/atuin:/home/agent/.local/share/atuin \
+        -v ~/.config/direnv:/home/agent/.config/direnv:ro \
+        -v ~/.local/share/direnv:/home/agent/.local/share/direnv \
+        -v ~/.local/share/uv_agents:/home/agent/.local/share/uv \
+        -v $terraformrc:/home/agent/.terraformrc:ro \
+        -v ~/.terraform_d_agents:/home/agent/.terraform.d \
+        -v ~/.pnpm:/home/agent/.pnpm \
+        -v ~/.local/share/fnm_agents/aliases:/home/agent/.local/share/fnm/aliases \
+        -v ~/.local/share/fnm_agents/node-versions:/home/agent/.local/share/fnm/node-versions \
+        -v ~/.local/state/fnm_multishells_agents:/home/agent/.local/state/fnm_multishells \
+        -v ~/.sonar_agents:/home/agent/.sonar \
+        -v ~/.rustup_agents:/home/agent/.rustup \
+        -v ~/.cargo_agents:/home/agent/.cargo \
+        -e PNPM_HOME=/home/agent/.pnpm \
+        -e "GIT_SSH_COMMAND=$git_ssh" \
+        -e OLLAMA_HOST=http://host.docker.internal:11434 \
+        -e CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
+        -e GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
+        -e STARSHIP_HOSTNAME=1 \
+        --cap-add=SYS_ADMIN \
+        --security-opt seccomp=unconfined \
+        --net=host \
+        "$image" infinity >/dev/null
+elif [[ "$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null)" != \
+        "$(docker inspect --format '{{.Image}}' "$container" 2>/dev/null)" ]]; then
+    print -u2 "note: $container predates the current $image build; run 'agents restart' to recreate it"
+fi
+
+# Attach an interactive login shell. Per-terminal variables are passed here (not
+# at create time) so each window gets its own current values.
+exec docker exec -it -w "$PWD" \
     -e TERM=$TERM \
     -e TERM_FEATURES=$TERM_FEATURES \
     -e TERM_SESSION_ID=$TERM_SESSION_ID \
@@ -43,7 +145,4 @@ exec docker run --rm -it \
     -e ITERM_SESSION_ID=$ITERM_SESSION_ID \
     -e LC_TERMINAL_VERSION=$LC_TERMINAL_VERSION \
     -e LC_TERMINAL=$LC_TERMINAL \
-    --cap-add=SYS_ADMIN \
-    --security-opt seccomp=unconfined \
-    --net=host \
-    mcfedr/agents
+    "$container" zsh --login

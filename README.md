@@ -47,7 +47,40 @@ This opens a zsh shell inside the container with `~/my-project` mounted at its o
 | Languages & runtimes | Node.js, npm, pnpm, fnm (with corepack), Python 3, uv, Go |
 | Cloud & infrastructure | AWS CLI, GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
 | Databases | MariaDB client, PostgreSQL 18 client |
+| Linters & formatters | hadolint, shellcheck, shfmt, golangci-lint |
 | Shell & productivity | zsh, starship, atuin, direnv, tmux, ripgrep, difftastic, jq, nano |
+
+## Browser automation with Chrome DevTools MCP
+
+The [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) server lets the AI assistants drive a real browser — navigate pages, inspect the DOM, read console and network logs, run Lighthouse, and take screenshots.
+
+The browser has to run on the **host** (it needs a real browser binary and a display, which the container doesn't have), so the MCP server runs on the host too and the containerised assistant connects to it over the network. The MCP launches and manages its own browser instance, so there's nothing to start by hand.
+
+**1. Install the host tools once:**
+
+```bash
+make chrome-install
+```
+
+This installs `chrome-devtools-mcp` and [`supergateway`](https://github.com/supercorp-ai/supergateway) globally, so the browser process is launched from a stable binary rather than re-resolved through `npx` on each spawn.
+
+**2. Start the server on the host** (leave it running in a terminal):
+
+```bash
+make chrome
+```
+
+This runs `chrome-devtools-mcp` behind `supergateway` in **stateful** mode, exposing it over streamable HTTP at `http://host.docker.internal:8222/mcp`. Stateful mode is essential: it keeps a single persistent browser process across requests. (Supergateway's default is stateless — it spawns a fresh browser for every request, so page state is lost between tool calls and concurrent spawns race.) Because `--isolated` is *not* passed, `chrome-devtools-mcp` uses its default persistent profile at `~/.cache/chrome-devtools-mcp/chrome-profile`, so logins and cookies survive restarts — log into a site once and it stays logged in. To drive Brave (or another Chromium build) instead of Chrome, append `--executable-path "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"` to the `--stdio` command in the `chrome` target.
+
+**3. Register it with Claude inside the container** (once — this persists in `~/.claude_agents.json`):
+
+```bash
+claude mcp add --transport http chrome-devtools http://host.docker.internal:8222/mcp
+```
+
+Restart `claude` and the `chrome-devtools` tools become available; the browser opens on the host on first use.
+
+> **Security:** the SSE port exposes full control of the launched browser to anything that can reach it. Keep port `8222` firewalled to your machine, and prefer the `--isolated` profile (no logged-in sessions) as configured.
 
 ## Customisation
 

@@ -1,0 +1,30 @@
+#!/bin/sh
+# Attach chrome-devtools-mcp to a Chrome running on the *host* machine that was
+# started with --remote-debugging-port=9222 (bound to the host's 127.0.0.1).
+#
+# Two problems this wrapper solves:
+#   1. Inside the container, 127.0.0.1 is the container itself, not the host.
+#      The host's Chrome is reachable at host.docker.internal:9222 (the same
+#      route the Ollama config uses).
+#   2. Chrome's DevTools HTTP endpoint rejects any request whose Host header is
+#      not "localhost" or a bare IP address (DNS-rebinding protection), so
+#      pointing --browser-url straight at host.docker.internal:9222 returns 403.
+#
+# Fix: run a socat listener on 127.0.0.1:9222 *inside* the container that
+# forwards to the host. chrome-devtools-mcp then connects to 127.0.0.1 (an
+# accepted Host) and socat relays the raw bytes to the host's Chrome. This is
+# the container equivalent of the SSH tunnel in the official troubleshooting
+# docs: `ssh -N -L 127.0.0.1:9222:127.0.0.1:9222 user@host`.
+set -e
+
+HOST_ENDPOINT="${CHROME_HOST_ENDPOINT:-host.docker.internal:9222}"
+LOCAL_PORT="${CHROME_LOCAL_PORT:-9222}"
+
+# Start the loopback bridge once. The probe connects through any existing
+# listener (harmless) and only spawns a new socat when nothing answers, so
+# repeated MCP restarts don't pile up duplicate forwarders.
+if ! socat -T1 STDIN "TCP:127.0.0.1:${LOCAL_PORT}" </dev/null >/dev/null 2>&1; then
+    socat "TCP-LISTEN:${LOCAL_PORT},fork,reuseaddr,bind=127.0.0.1" "TCP:${HOST_ENDPOINT}" >/dev/null 2>&1 &
+fi
+
+exec npx -y chrome-devtools-mcp@latest --browser-url "http://127.0.0.1:${LOCAL_PORT}"
