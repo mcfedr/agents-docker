@@ -46,6 +46,7 @@ RUN apk add --no-cache \
     nano \
     nodejs \
     npm \
+    pandoc-cli \
     pnpm \
     postgresql18-client \
     protobuf-dev \
