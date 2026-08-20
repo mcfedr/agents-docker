@@ -4,6 +4,9 @@ LOCAL_BIN := $(HOME_DIR)/.local/bin
 build:
 	docker build -t mcfedr/agents .
 
+build-no-cache:
+	docker build --no-cache -t mcfedr/agents .
+
 run:
 	docker run -it --rm mcfedr/agents
 

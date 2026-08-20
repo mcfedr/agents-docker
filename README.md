@@ -45,7 +45,7 @@ This opens a zsh shell inside the container with `~/my-project` mounted at its o
 |---|---|
 | AI assistants | Claude CLI, Gemini CLI, OpenAI Codex |
 | Languages & runtimes | Node.js, npm, pnpm, fnm (with corepack), Python 3, uv, Go |
-| Cloud & infrastructure | AWS CLI, GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
+| Cloud & infrastructure | AWS CLI, Azure CLI (az), GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
 | Databases | MariaDB client, PostgreSQL 18 client |
 | Linters & formatters | hadolint, shellcheck, shfmt, golangci-lint |
 | Shell & productivity | zsh, starship, atuin, direnv, tmux, ripgrep, difftastic, jq, nano |

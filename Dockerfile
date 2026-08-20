@@ -78,6 +78,12 @@ RUN case "$TARGETPLATFORM" in \
     && chmod +x acli \
     && mv acli /usr/local/bin/acli
 
+# Azure CLI — no Alpine package; installed into an isolated venv from prebuilt
+# musl wheels (--only-binary avoids needing a compiler / build headers).
+RUN python3 -m venv /opt/azure-cli \
+    && /opt/azure-cli/bin/pip install --no-cache-dir --only-binary=:all: azure-cli \
+    && ln -s /opt/azure-cli/bin/az /usr/local/bin/az
+
 # Atuin CLI
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive \
     && mv ~/.atuin/bin/atuin /usr/local/bin/atuin
