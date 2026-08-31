@@ -45,7 +45,8 @@ This opens a zsh shell inside the container with `~/my-project` mounted at its o
 |---|---|
 | AI assistants | Claude CLI, Gemini CLI, OpenAI Codex |
 | Languages & runtimes | Node.js, npm, pnpm, fnm (with corepack), Python 3, uv, Go |
-| Cloud & infrastructure | AWS CLI, Azure CLI (az), GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
+| Cloud & infrastructure | AWS CLI, Azure CLI (az), Google Cloud CLI (gcloud, gsutil, bq), GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
+| Kubernetes | kubectl, gke-gcloud-auth-plugin |
 | Databases | MariaDB client, PostgreSQL 18 client |
 | Linters & formatters | hadolint, shellcheck, shfmt, golangci-lint |
 | Shell & productivity | zsh, starship, atuin, direnv, tmux, ripgrep, difftastic, jq, nano |
@@ -105,11 +106,15 @@ The `agents` script mounts these host paths into the container:
 | `~/.netrc` | `~/.netrc` | read-only |
 | `~/.config/gh` | `~/.config/gh` | read-only |
 | `~/.config/glab-cli` | `~/.config/glab-cli` | read-only |
+| `~/.kube_agents` | `~/.kube` | read-write |
+| `~/.config/gcloud_agents` | `~/.config/gcloud` | read-write |
 | `~/.config/acli` | `~/.config/acli` | read-only |
 | `~/.config/atuin` | `~/.config/atuin` | read-only |
 | `~/.config/starship.toml` | `~/.config/starship.toml` | read-only |
 | `~/.config/direnv` | `~/.config/direnv` | read-only |
 | `~/.local/share/atuin` | `~/.local/share/atuin` | read-write |
 | `~/.local/share/direnv` | `~/.local/share/direnv` | read-write |
+
+Several of these are per-context: the `agents` script picks a `_smartsuite` or `_ekreative` suffixed variant (e.g. `~/.aws_agents_smartsuite`, `~/.kube_agents_ekreative`) based on the working directory, falling back to the unsuffixed path shown above. `make install` creates every variant.
 
 Make sure these host paths exist before running `agents`, or remove the corresponding `-v` lines from the script for any you don't need.

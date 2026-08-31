@@ -18,6 +18,9 @@ $HOME/projects/smartsuite | $HOME/projects/smartsuite/*)
     opencode_share=~/.local/share/opencode_agents_smartsuite
     opencode_state=~/.local/state/opencode_agents_smartsuite
     gh_dir=~/.config/gh_agents_smartsuite
+    kube_dir=~/.kube_agents_smartsuite
+    gcloud_dir=~/.config/gcloud_agents_smartsuite
+    aws_dir=~/.aws_agents_smartsuite
     glab_dir=~/.config/glab-cli_agents_smartsuite
     netrc=~/.netrc_smartsuite
     npmrc=~/.npmrc_smartsuite
@@ -31,6 +34,9 @@ $HOME/projects | $HOME/projects/*)
     opencode_share=~/.local/share/opencode_agents_ekreative
     opencode_state=~/.local/state/opencode_agents_ekreative
     gh_dir=~/.config/gh_agents_ekreative
+    kube_dir=~/.kube_agents_ekreative
+    gcloud_dir=~/.config/gcloud_agents_ekreative
+    aws_dir=~/.aws_agents_ekreative
     glab_dir=~/.config/glab-cli_agents_ekreative
     netrc=~/.netrc_ekreative
     npmrc=~/.npmrc_ekreative
@@ -44,6 +50,9 @@ $HOME/projects | $HOME/projects/*)
     opencode_share=~/.local/share/opencode_agents
     opencode_state=~/.local/state/opencode_agents
     gh_dir=~/.config/gh_agents
+    kube_dir=~/.kube_agents
+    gcloud_dir=~/.config/gcloud_agents
+    aws_dir=~/.aws_agents
     glab_dir=~/.config/glab-cli_agents
     netrc=~/.netrc
     npmrc=~/.npmrc
@@ -101,10 +110,12 @@ if [[ -z "$running" ]]; then
         -v ~/.ssh_agents:/home/agent/.ssh:ro \
         -v $glab_dir:/home/agent/.config/glab-cli \
         -v $gh_dir:/home/agent/.config/gh \
+        -v $kube_dir:/home/agent/.kube \
+        -v $gcloud_dir:/home/agent/.config/gcloud \
         -v ~/.config/acli:/home/agent/.config/acli:ro \
         -v ~/.config/atuin:/home/agent/.config/atuin:ro \
         -v ~/.config/starship.toml:/home/agent/.config/starship.toml:ro \
-        -v ~/.aws_agents:/home/agent/.aws \
+        -v $aws_dir:/home/agent/.aws \
         -v ~/.local/share/atuin:/home/agent/.local/share/atuin \
         -v ~/.config/direnv:/home/agent/.config/direnv:ro \
         -v ~/.local/share/direnv:/home/agent/.local/share/direnv \

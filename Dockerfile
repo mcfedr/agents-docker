@@ -37,6 +37,8 @@ RUN apk add --no-cache \
     icu-libs \
     imagemagick \
     jq \
+    kubectl \
+    kubectl-zsh-completion \
     libcurl \
     libgcc \
     libstdc++ \
@@ -84,37 +86,58 @@ RUN python3 -m venv /opt/azure-cli \
     && /opt/azure-cli/bin/pip install --no-cache-dir --only-binary=:all: azure-cli \
     && ln -s /opt/azure-cli/bin/az /usr/local/bin/az
 
+# Google Cloud CLI — no Alpine package. The bundled glibc python in the archive
+# can't run on musl, so gcloud is pointed at the system interpreter instead.
+ENV CLOUDSDK_PYTHON=/usr/bin/python3
+RUN case "$TARGETPLATFORM" in \
+        "linux/arm64") GCLOUD_ARCH="arm" ;; \
+        "linux/amd64") GCLOUD_ARCH="x86_64" ;; \
+        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
+    esac \
+    && curl -fsSL "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-${GCLOUD_ARCH}.tar.gz" -o /tmp/gcloud.tar.gz \
+    && tar -C /opt -xzf /tmp/gcloud.tar.gz \
+    && rm /tmp/gcloud.tar.gz \
+    && /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false --command-completion=false \
+    && /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet \
+    && for b in gcloud gsutil bq gke-gcloud-auth-plugin; do ln -s "/opt/google-cloud-sdk/bin/$b" "/usr/local/bin/$b"; done
+
 # Atuin CLI
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive \
     && mv ~/.atuin/bin/atuin /usr/local/bin/atuin
 
 RUN echo 'export IT2_TAB_COLOR=FF0000' >> /.envrc
 
-ENV PRODUCT=terraform
-ENV VERSION=1.15.7
+# Every tool below resolves its version at build time. The paired ADD pulls the
+# upstream "latest" document into the layer, so a new release changes the layer
+# hash and the install re-runs; without it a plain `docker build` would serve a
+# cached layer forever and "latest" would only mean "latest at first build".
+ADD https://api.releases.hashicorp.com/v1/releases/terraform/latest /tmp/terraform-release.json
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") TF_PLATFORM="linux_arm64" ;; \
         "linux/amd64") TF_PLATFORM="linux_amd64" ;; \
         *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
     esac \
     && cd /tmp \
-    && wget "https://releases.hashicorp.com/${PRODUCT}/${VERSION}/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" \
-    && wget "https://releases.hashicorp.com/${PRODUCT}/${VERSION}/${PRODUCT}_${VERSION}_SHA256SUMS" \
-    && wget "https://releases.hashicorp.com/${PRODUCT}/${VERSION}/${PRODUCT}_${VERSION}_SHA256SUMS.sig" \
+    && TF_VERSION="$(jq -re .version /tmp/terraform-release.json)" \
+    && TF_BASE_URL="https://releases.hashicorp.com/terraform/${TF_VERSION}" \
+    && wget "${TF_BASE_URL}/terraform_${TF_VERSION}_${TF_PLATFORM}.zip" \
+    && wget "${TF_BASE_URL}/terraform_${TF_VERSION}_SHA256SUMS" \
+    && wget "${TF_BASE_URL}/terraform_${TF_VERSION}_SHA256SUMS.sig" \
     && wget -qO- https://www.hashicorp.com/.well-known/pgp-key.txt | gpg --import \
-    && gpg --verify ${PRODUCT}_${VERSION}_SHA256SUMS.sig ${PRODUCT}_${VERSION}_SHA256SUMS \
-    && grep "${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" ${PRODUCT}_${VERSION}_SHA256SUMS | sha256sum -c \
-    && unzip "/tmp/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" -d /tmp \
-    && mv /tmp/${PRODUCT} /usr/local/bin/${PRODUCT} \
-    && rm -f "/tmp/${PRODUCT}_${VERSION}_${TF_PLATFORM}.zip" ${PRODUCT}_${VERSION}_SHA256SUMS ${PRODUCT}_${VERSION}_SHA256SUMS.sig
+    && gpg --verify "terraform_${TF_VERSION}_SHA256SUMS.sig" "terraform_${TF_VERSION}_SHA256SUMS" \
+    && grep "terraform_${TF_VERSION}_${TF_PLATFORM}.zip" "terraform_${TF_VERSION}_SHA256SUMS" | sha256sum -c \
+    && unzip "/tmp/terraform_${TF_VERSION}_${TF_PLATFORM}.zip" -d /tmp \
+    && mv /tmp/terraform /usr/local/bin/terraform \
+    && rm -f "terraform_${TF_VERSION}_"*
 
-ENV TERRAGRUNT_VERSION=v1.1.0
+ADD https://api.github.com/repos/gruntwork-io/terragrunt/releases/latest /tmp/terragrunt-release.json
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") TG_ARCH="arm64" ;; \
         "linux/amd64") TG_ARCH="amd64" ;; \
         *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
     esac \
     && cd /tmp \
+    && TERRAGRUNT_VERSION="$(jq -re .tag_name /tmp/terragrunt-release.json)" \
     && TG_ARCHIVE="terragrunt_linux_${TG_ARCH}.tar.gz" \
     && TG_BINARY="terragrunt_linux_${TG_ARCH}" \
     && TG_BASE_URL="https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}" \
@@ -129,16 +152,18 @@ RUN case "$TARGETPLATFORM" in \
     && mv "/tmp/${TG_BINARY}" /usr/local/bin/terragrunt \
     && rm -f "${TG_ARCHIVE}" SHA256SUMS SHA256SUMS.gpgsig
 
-RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s v2.12.2
+ADD https://api.github.com/repos/golangci/golangci-lint/releases/latest /tmp/golangci-lint-release.json
+RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s
 
 # hadolint (Dockerfile linter) — not packaged in the Alpine repos
-ENV HADOLINT_VERSION=v2.15.1
+ADD https://api.github.com/repos/hadolint/hadolint/releases/latest /tmp/hadolint-release.json
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") HADOLINT_ARCH="arm64" ;; \
         "linux/amd64") HADOLINT_ARCH="x86_64" ;; \
         *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
     esac \
     && cd /tmp \
+    && HADOLINT_VERSION="$(jq -re .tag_name /tmp/hadolint-release.json)" \
     && HADOLINT_BASE_URL="https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}" \
     && curl -fsSLO "${HADOLINT_BASE_URL}/hadolint-linux-${HADOLINT_ARCH}" \
     && curl -fsSLO "${HADOLINT_BASE_URL}/checksums.sha256" \
@@ -147,9 +172,15 @@ RUN case "$TARGETPLATFORM" in \
     && mv "hadolint-linux-${HADOLINT_ARCH}" /usr/local/bin/hadolint \
     && rm -f checksums.sha256
 
-ENV GO_VERSION=1.26.4
+ADD https://go.dev/VERSION?m=text /tmp/go-version
 RUN apk add --no-cache curl tar ca-certificates \
-    && curl -L "https://go.dev/dl/go${GO_VERSION}.linux-amd64.tar.gz" -o /tmp/go.tar.gz \
+    && case "$TARGETPLATFORM" in \
+        "linux/arm64") GO_ARCH="arm64" ;; \
+        "linux/amd64") GO_ARCH="amd64" ;; \
+        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
+    esac \
+    && GO_VERSION="$(sed -n '1s/^go//p' /tmp/go-version)" \
+    && curl -L "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tar.gz \
     && tar -C /usr/local -xzf /tmp/go.tar.gz \
     && rm /tmp/go.tar.gz
 
@@ -221,6 +252,21 @@ RUN echo 'bindkey "^[[H" beginning-of-line' >> ~/.zshrc \
 
 RUN echo 'autoload -Uz compinit' >> ~/.zshrc \
     && echo 'compinit' >> ~/.zshrc
+
+# Both ship as scripts to source rather than autoloadable _name functions, so
+# compinit never picks them up off fpath by itself. They also route bash-style
+# completers through bashcompinit, which needs the completion system already
+# initialised — hence after the compinit above.
+RUN echo 'source /opt/google-cloud-sdk/completion.zsh.inc' >> ~/.zshrc \
+    && echo 'source /usr/share/zsh/site-functions/aws_zsh_completer.sh' >> ~/.zshrc
+
+# Terraform and Terragrunt ship no completion file at all — each binary answers
+# the bash `complete -C` protocol itself over COMP_LINE/COMP_POINT, which is all
+# their -install-autocomplete flags wire up. bashcompinit is repeated here (the
+# completers above also load it) so the block stands on its own.
+RUN echo 'autoload -Uz bashcompinit && bashcompinit' >> ~/.zshrc \
+    && echo 'complete -o nospace -C /usr/local/bin/terraform terraform' >> ~/.zshrc \
+    && echo 'complete -o nospace -C /usr/local/bin/terragrunt terragrunt' >> ~/.zshrc
 
 RUN curl -L https://iterm2.com/shell_integration/zsh \
     -o ~/.iterm2_shell_integration.zsh \
