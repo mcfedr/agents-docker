@@ -29,6 +29,14 @@ RUN apk add --no-cache \
     curl-dev \
     difftastic \
     direnv \
+    docker-cli \
+    docker-cli-buildx \
+    docker-cli-compose \
+    docker-credential-ecr-login \
+    gdal \
+    gdal-dev \
+    gdal-tools \
+    geos-dev \
     git \
     github-cli \
     glab \
@@ -41,6 +49,7 @@ RUN apk add --no-cache \
     kubectl-zsh-completion \
     libcurl \
     libgcc \
+    libpq-dev \
     libstdc++ \
     make \
     mariadb-client \
@@ -51,6 +60,7 @@ RUN apk add --no-cache \
     pandoc-cli \
     pnpm \
     postgresql18-client \
+    proj-dev \
     protobuf-dev \
     python3 \
     python3-dev \
@@ -99,7 +109,7 @@ RUN case "$TARGETPLATFORM" in \
     && rm /tmp/gcloud.tar.gz \
     && /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false --command-completion=false \
     && /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet \
-    && for b in gcloud gsutil bq gke-gcloud-auth-plugin; do ln -s "/opt/google-cloud-sdk/bin/$b" "/usr/local/bin/$b"; done
+    && for b in gcloud gsutil bq gke-gcloud-auth-plugin docker-credential-gcloud; do ln -s "/opt/google-cloud-sdk/bin/$b" "/usr/local/bin/$b"; done
 
 # Atuin CLI
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive \

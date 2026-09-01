@@ -72,9 +72,32 @@ chrome-status:
 chrome-logs:
 	@tail -f $(CHROME_LOG)
 
-.PHONY: build chrome-install chrome chrome-start chrome-stop chrome-status chrome-logs install
+# Registry credential helpers for the containerised docker CLI. The helper
+# binaries ship in the image; ecr-login reads the context's ~/.aws mount and
+# docker-credential-gcloud its gcloud config, so each context authenticates as
+# its own account. Merged rather than overwritten, so a `docker login` done
+# inside the container survives re-running this.
+GCLOUD_CREDHELPERS := "europe-west1-docker.pkg.dev":"gcloud","us-east1-docker.pkg.dev":"gcloud"
+CREDHELPERS := {$(GCLOUD_CREDHELPERS)}
+CREDHELPERS_SMARTSUITE := {$(GCLOUD_CREDHELPERS),"864514156870.dkr.ecr.us-east-2.amazonaws.com":"ecr-login"}
+CREDHELPERS_EKREATIVE := {$(GCLOUD_CREDHELPERS),"691282246055.dkr.ecr.us-east-1.amazonaws.com":"ecr-login"}
 
-install:
+docker-credhelpers:
+	@set -e; \
+	merge() { \
+		mkdir -p "$$(dirname "$$1")"; \
+		[ -s "$$1" ] || echo '{}' > "$$1"; \
+		jq -S --argjson h "$$2" '.credHelpers = ((.credHelpers // {}) + $$h)' "$$1" > "$$1.tmp"; \
+		mv "$$1.tmp" "$$1"; \
+		echo "credHelpers -> $$1"; \
+	}; \
+	merge $(HOME_DIR)/.docker_agents/config.json '$(CREDHELPERS)'; \
+	merge $(HOME_DIR)/.docker_agents_smartsuite/config.json '$(CREDHELPERS_SMARTSUITE)'; \
+	merge $(HOME_DIR)/.docker_agents_ekreative/config.json '$(CREDHELPERS_EKREATIVE)'
+
+.PHONY: build chrome-install chrome chrome-start chrome-stop chrome-status chrome-logs install docker-credhelpers
+
+install: docker-credhelpers
 	mkdir -p $(HOME_DIR)/.claude_agents
 	mkdir -p $(HOME_DIR)/.claude_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.claude_agents_ekreative
@@ -91,6 +114,9 @@ install:
 	mkdir -p $(HOME_DIR)/.aws_agents
 	mkdir -p $(HOME_DIR)/.aws_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.aws_agents_ekreative
+	mkdir -p $(HOME_DIR)/.docker_agents
+	mkdir -p $(HOME_DIR)/.docker_agents_smartsuite
+	mkdir -p $(HOME_DIR)/.docker_agents_ekreative
 	mkdir -p $(HOME_DIR)/.terraform_d_agents/plugin-cache
 	mkdir -p $(HOME_DIR)/.ssh_agents
 	mkdir -p $(HOME_DIR)/.config/glab-cli_agents

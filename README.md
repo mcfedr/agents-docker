@@ -18,6 +18,49 @@ A containerised development environment that bundles multiple AI coding assistan
 
 The container runs with `--net=host`, sharing the host's network stack directly. This means dev servers started inside the container (e.g. `npm run dev` on port 3000) are accessible on the host at `localhost:3000` without any port mapping, and the container can reach host-local services like databases or API servers as if it were running natively.
 
+## Docker
+
+The host's Docker socket is mounted into the container and the docker CLI (plus
+`compose` and `buildx`) is installed, so `docker` inside the container drives the
+**host** daemon. There is no nested daemon: images you build are host images,
+`docker ps` lists the host's containers — including the `agents` container you
+are typing in.
+
+Because the working directory is mounted at *the same path* it has on the host,
+bind mounts and build contexts resolve correctly — `docker run -v $(pwd):/app`
+and `docker compose up` in a mounted project both work, since the daemon sees
+the same path. Anything **outside** the mounted directory (e.g. `~/somewhere-else`)
+is not visible in the container and will not mount as you expect.
+
+Registry credentials live in `~/.docker_agents` rather than your host `~/.docker`,
+so a `docker login` inside the container does not touch your host config. The
+host's `credsStore: desktop` helper does not exist in the container, which is why
+the config is kept separate.
+
+`make install` seeds each context's `config.json` with credential helpers, so ECR
+and Artifact Registry pulls work without an explicit `docker login`:
+
+| Registry | Helper | Context |
+|---|---|---|
+| `864514156870.dkr.ecr.us-east-2.amazonaws.com` | `ecr-login` | smartsuite |
+| `691282246055.dkr.ecr.us-east-1.amazonaws.com` | `ecr-login` | ekreative |
+| `europe-west1-docker.pkg.dev`, `us-east1-docker.pkg.dev` | `gcloud` | all |
+
+Each helper reads the *same per-context state the rest of the tooling uses* —
+`ecr-login` picks up the context's `~/.aws` mount and `docker-credential-gcloud`
+its `~/.config/gcloud` mount — so the smartsuite context authenticates to ECR as
+the smartsuite account without any extra configuration. Whatever makes `aws` and
+`gcloud` work in that shell makes the registry pull work too.
+
+The `docker-credhelpers` target merges into any existing `config.json` rather than
+replacing it, so a `docker login` you did inside the container survives a re-run.
+It only ever adds entries — removing a registry means editing the file by hand.
+
+> **Security:** access to the Docker socket is equivalent to root on the host.
+> The AI assistants running in this container can start privileged containers and
+> mount any host path. Drop the `-v /var/run/docker.sock` line from the `agents`
+> script if you don't want that.
+
 ## Prerequisites
 
 - Docker (with support for `--cap-add=SYS_ADMIN` and `--net=host` — needed for Claude CLI's bubblewrap sandbox and host network access)
@@ -46,10 +89,37 @@ This opens a zsh shell inside the container with `~/my-project` mounted at its o
 | AI assistants | Claude CLI, Gemini CLI, OpenAI Codex |
 | Languages & runtimes | Node.js, npm, pnpm, fnm (with corepack), Python 3, uv, Go |
 | Cloud & infrastructure | AWS CLI, Azure CLI (az), Google Cloud CLI (gcloud, gsutil, bq), GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
+| Containers | docker CLI, docker compose, docker buildx (all driving the **host** daemon), docker-credential-ecr-login |
 | Kubernetes | kubectl, gke-gcloud-auth-plugin |
-| Databases | MariaDB client, PostgreSQL 18 client |
+| Databases | MariaDB client, PostgreSQL 18 client, libpq headers |
+| Geospatial | GDAL 3.13 + gdal-tools (`gdalinfo`, `ogr2ogr`), GEOS, PROJ, and their headers |
 | Linters & formatters | hadolint, shellcheck, shfmt, golangci-lint |
 | Shell & productivity | zsh, starship, atuin, direnv, tmux, ripgrep, difftastic, jq, nano |
+
+## Python native extensions
+
+Alpine is musl-based, and many scientific/database Python packages publish only
+glibc (`manylinux`) wheels — so pip builds them from source in your venv. The
+image carries the headers those builds need, so a plain `uv venv` works without
+`--system-site-packages`.
+
+GDAL has no musl wheel and its Python bindings must match the system library
+exactly, so pin the version:
+
+```bash
+uv venv && source .venv/bin/activate
+uv pip install "gdal==$(gdal-config --version)"    # ~30s, compiles against system GDAL
+```
+
+`rasterio`, `fiona` and `geopandas` are likewise source builds against the same
+headers. `shapely`, `pyproj`, `psycopg2-binary`, `psycopg[binary]` and `asyncpg`
+ship musl wheels and install instantly. `psycopg2`, `psycopg[c]` and `pymongo`
+build from source against the bundled headers.
+
+**Known gap:** pymongo's `zstd` wire compression is unavailable. Alpine's
+python3 ships the `compression.zstd` wrapper without the `_zstd` C extension,
+and `backports.zstd` refuses to install on Python 3.14 by design. Use `zlib` or
+`snappy` compression instead — both work.
 
 ## Browser automation with Chrome DevTools MCP
 
@@ -100,6 +170,8 @@ The `agents` script mounts these host paths into the container:
 | `~/.claude.json` | `~/.claude.json` | read-write |
 | `~/.codex_agents` | `~/.codex` | read-write |
 | `~/.aws_agents` | `~/.aws` | read-write |
+| `~/.docker_agents` | `~/.docker` | read-write |
+| `/var/run/docker.sock` | `/var/run/docker.sock` | read-write |
 | `~/.ssh` | `~/.ssh` | read-only |
 | `~/.gitconfig` | `~/.gitconfig` | read-only |
 | `~/.npmrc` | `~/.npmrc` | read-only |

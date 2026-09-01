@@ -21,6 +21,7 @@ $HOME/projects/smartsuite | $HOME/projects/smartsuite/*)
     kube_dir=~/.kube_agents_smartsuite
     gcloud_dir=~/.config/gcloud_agents_smartsuite
     aws_dir=~/.aws_agents_smartsuite
+    docker_dir=~/.docker_agents_smartsuite
     glab_dir=~/.config/glab-cli_agents_smartsuite
     netrc=~/.netrc_smartsuite
     npmrc=~/.npmrc_smartsuite
@@ -37,6 +38,7 @@ $HOME/projects | $HOME/projects/*)
     kube_dir=~/.kube_agents_ekreative
     gcloud_dir=~/.config/gcloud_agents_ekreative
     aws_dir=~/.aws_agents_ekreative
+    docker_dir=~/.docker_agents_ekreative
     glab_dir=~/.config/glab-cli_agents_ekreative
     netrc=~/.netrc_ekreative
     npmrc=~/.npmrc_ekreative
@@ -53,6 +55,7 @@ $HOME/projects | $HOME/projects/*)
     kube_dir=~/.kube_agents
     gcloud_dir=~/.config/gcloud_agents
     aws_dir=~/.aws_agents
+    docker_dir=~/.docker_agents
     glab_dir=~/.config/glab-cli_agents
     netrc=~/.netrc
     npmrc=~/.npmrc
@@ -116,6 +119,8 @@ if [[ -z "$running" ]]; then
         -v ~/.config/atuin:/home/agent/.config/atuin:ro \
         -v ~/.config/starship.toml:/home/agent/.config/starship.toml:ro \
         -v $aws_dir:/home/agent/.aws \
+        -v $docker_dir:/home/agent/.docker \
+        -v /var/run/docker.sock:/var/run/docker.sock \
         -v ~/.local/share/atuin:/home/agent/.local/share/atuin \
         -v ~/.config/direnv:/home/agent/.config/direnv:ro \
         -v ~/.local/share/direnv:/home/agent/.local/share/direnv \
@@ -138,6 +143,7 @@ if [[ -z "$running" ]]; then
         -e CODEX_GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
         -e GITHUB_PERSONAL_ACCESS_TOKEN=$CODEX_GITHUB_PERSONAL_ACCESS_TOKEN \
         -e STARSHIP_HOSTNAME=1 \
+        --group-add 0 \
         --cap-add=SYS_ADMIN \
         --security-opt seccomp=unconfined \
         --net=host \
