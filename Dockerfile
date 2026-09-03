@@ -37,6 +37,7 @@ RUN apk add --no-cache \
     gdal-dev \
     gdal-tools \
     geos-dev \
+    gettext \
     git \
     github-cli \
     glab \
@@ -195,17 +196,21 @@ RUN apk add --no-cache curl tar ca-certificates \
     && rm /tmp/go.tar.gz
 
 # OpenCode
+ADD https://registry.npmjs.org/opencode-ai/latest /tmp/opencode-ai-latest.json
 RUN npm install -g opencode-ai
 
 # Claude CLI
+ADD https://registry.npmjs.org/@anthropic-ai/claude-code/latest /tmp/claude-code-latest.json
 RUN npm install -g @anthropic-ai/claude-code
 ENV USE_BUILTIN_RIPGREP=0
 
 # Gemini CLI
-# RUN npm install -g @google/gemini-cli
+ADD https://registry.npmjs.org/@google/gemini-cli/latest /tmp/gemini-cli-latest.json
+RUN npm install -g @google/gemini-cli
 # RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
 
 # Codex
+ADD https://registry.npmjs.org/@openai/codex/latest /tmp/codex-latest.json
 RUN npm i -g @openai/codex
 
 # Copilot CLI
