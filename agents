@@ -22,6 +22,7 @@ $HOME/projects/smartsuite | $HOME/projects/smartsuite/*)
     gcloud_dir=~/.config/gcloud_agents_smartsuite
     aws_dir=~/.aws_agents_smartsuite
     docker_dir=~/.docker_agents_smartsuite
+    composer_dir=~/.composer_agents_smartsuite
     glab_dir=~/.config/glab-cli_agents_smartsuite
     netrc=~/.netrc_smartsuite
     npmrc=~/.npmrc_smartsuite
@@ -39,6 +40,7 @@ $HOME/projects | $HOME/projects/*)
     gcloud_dir=~/.config/gcloud_agents_ekreative
     aws_dir=~/.aws_agents_ekreative
     docker_dir=~/.docker_agents_ekreative
+    composer_dir=~/.composer_agents_ekreative
     glab_dir=~/.config/glab-cli_agents_ekreative
     netrc=~/.netrc_ekreative
     npmrc=~/.npmrc_ekreative
@@ -56,6 +58,7 @@ $HOME/projects | $HOME/projects/*)
     gcloud_dir=~/.config/gcloud_agents
     aws_dir=~/.aws_agents
     docker_dir=~/.docker_agents
+    composer_dir=~/.composer_agents
     glab_dir=~/.config/glab-cli_agents
     netrc=~/.netrc
     npmrc=~/.npmrc
@@ -105,7 +108,7 @@ if [[ -z "$running" ]]; then
         -v $opencode_share:/home/agent/.local/share/opencode \
         -v $opencode_state:/home/agent/.local/state/opencode \
         -v $netrc:/home/agent/${netrc:t}:ro \
-        -v $npmrc:/home/agent/${npmrc:t}:ro \
+        -v $npmrc:/home/agent/${npmrc:t} \
         -v ~/.gitconfig:/home/agent/.gitconfig:ro \
         -v ~/.gitconfig-ek:/home/agent/.gitconfig-ek:ro \
         -v ~/.gitconfig-ss:/home/agent/.gitconfig-ss:ro \
@@ -116,12 +119,13 @@ if [[ -z "$running" ]]; then
         -v $kube_dir:/home/agent/.kube \
         -v $gcloud_dir:/home/agent/.config/gcloud \
         -v ~/.config/acli:/home/agent/.config/acli:ro \
-        -v ~/.config/atuin:/home/agent/.config/atuin:ro \
+        -v ~/.config/atuin_agents:/home/agent/.config/atuin:ro \
         -v ~/.config/starship.toml:/home/agent/.config/starship.toml:ro \
         -v $aws_dir:/home/agent/.aws \
         -v $docker_dir:/home/agent/.docker \
+        -v $composer_dir:/home/agent/.composer \
         -v /var/run/docker.sock:/var/run/docker.sock \
-        -v ~/.local/share/atuin:/home/agent/.local/share/atuin \
+        -v ~/.local/share/atuin_agents:/home/agent/.local/share/atuin \
         -v ~/.config/direnv:/home/agent/.config/direnv:ro \
         -v ~/.local/share/direnv:/home/agent/.local/share/direnv \
         -v ~/.local/share/uv_agents:/home/agent/.local/share/uv \

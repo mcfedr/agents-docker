@@ -125,33 +125,35 @@ and `backports.zstd` refuses to install on Python 3.14 by design. Use `zlib` or
 
 The [`chrome-devtools-mcp`](https://github.com/ChromeDevTools/chrome-devtools-mcp) server lets the AI assistants drive a real browser — navigate pages, inspect the DOM, read console and network logs, run Lighthouse, and take screenshots.
 
-The browser has to run on the **host** (it needs a real browser binary and a display, which the container doesn't have), so the MCP server runs on the host too and the containerised assistant connects to it over the network. The MCP launches and manages its own browser instance, so there's nothing to start by hand.
+The browser has to run on the **host** (it needs a real browser binary and a display, which the container doesn't have), but the MCP server does not: each agent runs its own `chrome-devtools-mcp` inside the container and attaches to the host's Chrome over the DevTools protocol. This is the arrangement the upstream [advanced usage guide](https://github.com/ChromeDevTools/chrome-devtools-mcp/blob/main/docs/advanced-usage.md#connecting-to-a-running-chrome-instance) recommends for sandboxed clients, and it is what makes several agents usable at once: nothing in the container ever *launches* Chrome, so nothing contends for the single-writer lock on its profile directory.
 
-**1. Install the host tools once:**
-
-```bash
-make chrome-install
-```
-
-This installs `chrome-devtools-mcp` and [`supergateway`](https://github.com/supercorp-ai/supergateway) globally, so the browser process is launched from a stable binary rather than re-resolved through `npx` on each spawn.
-
-**2. Start the server on the host** (leave it running in a terminal):
+**1. Start Chrome on the host** (leave it running, or use `make chrome-start` to background it under launchd):
 
 ```bash
 make chrome
 ```
 
-This runs `chrome-devtools-mcp` behind `supergateway` in **stateful** mode, exposing it over streamable HTTP at `http://host.docker.internal:8222/mcp`. Stateful mode is essential: it keeps a single persistent browser process across requests. (Supergateway's default is stateless — it spawns a fresh browser for every request, so page state is lost between tool calls and concurrent spawns race.) Because `--isolated` is *not* passed, `chrome-devtools-mcp` uses its default persistent profile at `~/.cache/chrome-devtools-mcp/chrome-profile`, so logins and cookies survive restarts — log into a site once and it stays logged in. To drive Brave (or another Chromium build) instead of Chrome, append `--executable-path "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"` to the `--stdio` command in the `chrome` target.
-
-**3. Register it with Claude inside the container** (once — this persists in `~/.claude_agents.json`):
+This starts Chrome with `--remote-debugging-port=9333` on a dedicated profile at `~/.cache/chrome-devtools-mcp/chrome-profile` — the same directory `chrome-devtools-mcp` used to launch for itself, so existing logins and cookies carry over, and log into a site once and it stays logged in. The profile has to be a non-default one: since Chrome 136 the remote debugging port is [ignored on the default profile](https://developer.chrome.com/blog/remote-debugging-port). It starts with `--no-startup-window`, so the browser sits in the background with its debugging port open and no window on screen; the first agent to open a page gets one, and closing it leaves Chrome running. Swap in `--headless=new` in the `chrome` target if you would rather never see it, giving up interactive logins and watching the agent work. The port is 9333 rather than the conventional 9222 because other Chromium builds claim 9222 — Brave does by default. That clash fails silently and confusingly: the browser that binds first takes IPv4 loopback, ours falls back to `[::1]`, and `host.docker.internal` only resolves to IPv4, so every request from a container reaches the wrong browser. To drive Brave (or another Chromium build), override `CHROME_BIN`:
 
 ```bash
-claude mcp add --transport http chrome-devtools http://host.docker.internal:8222/mcp
+make chrome CHROME_BIN="/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"
 ```
 
-Restart `claude` and the `chrome-devtools` tools become available; the browser opens on the host on first use.
+**2. Register it with Claude inside the container** (once — this persists in `~/.claude_agents.json`):
 
-> **Security:** the SSE port exposes full control of the launched browser to anything that can reach it. Keep port `8222` firewalled to your machine, and prefer the `--isolated` profile (no logged-in sessions) as configured.
+```bash
+claude mcp add chrome-devtools --scope user -- chrome-devtools-mcp-host
+```
+
+`chrome-devtools-mcp-host` is a wrapper shipped in the image. It puts a `socat` bridge on the container's `127.0.0.1:9333` forwarding to `host.docker.internal:9333`, then runs `chrome-devtools-mcp --browser-url http://127.0.0.1:9333`. The bridge exists because Chrome rejects any DevTools request whose `Host` header isn't `localhost` or a bare IP (DNS-rebinding protection), so pointing `--browser-url` straight at `host.docker.internal` returns 403.
+
+Restart `claude` and the `chrome-devtools` tools become available. If the [marketplace plugin](https://github.com/ChromeDevTools/chrome-devtools-mcp) is also enabled, disable it — it runs a bare `chrome-devtools-mcp` with no `--browser-url`, which tries to launch a browser that isn't in the container.
+
+**Why stdio rather than an HTTP gateway.** Running the MCP on the host behind an HTTP gateway is the obvious alternative, but Claude Code applies much tighter deadlines to HTTP servers than to stdio ones: a per-request 60-second first-byte timer (which `lighthouse_audit` and trace recording routinely blow through) and a 5-minute idle window, against no per-request timer and a 30-minute idle window for stdio. A gateway also has to keep a session per client, which is another thing to expire out from under a long-thinking agent.
+
+One trade-off: the opt-in extension and PWA tool categories need a pipe connection and are unavailable over `--browser-url`.
+
+> **Security:** the debugging port gives full control of that Chrome profile to anything that can reach it. It binds to the host's `127.0.0.1`, reachable from containers only via Docker Desktop's `host.docker.internal` route. Don't browse anything sensitive in that profile.
 
 ## Customisation
 

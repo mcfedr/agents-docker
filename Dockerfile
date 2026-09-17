@@ -25,6 +25,8 @@ RUN apk add --no-cache \
     build-base \
     ca-certificates \
     clang-extra-tools \
+    composer \
+    composer-zsh-completion \
     curl \
     curl-dev \
     difftastic \
@@ -39,6 +41,7 @@ RUN apk add --no-cache \
     geos-dev \
     gettext \
     git \
+    git-lfs \
     github-cli \
     glab \
     gnupg \
@@ -59,6 +62,31 @@ RUN apk add --no-cache \
     nodejs \
     npm \
     pandoc-cli \
+    php85 \
+    php85-bcmath \
+    php85-ctype \
+    php85-curl \
+    php85-dom \
+    php85-fileinfo \
+    php85-gd \
+    php85-iconv \
+    php85-intl \
+    php85-mbstring \
+    php85-openssl \
+    php85-pcntl \
+    php85-pdo \
+    php85-pdo_mysql \
+    php85-pdo_pgsql \
+    php85-pdo_sqlite \
+    php85-phar \
+    php85-posix \
+    php85-session \
+    php85-simplexml \
+    php85-sockets \
+    php85-tokenizer \
+    php85-xml \
+    php85-xmlwriter \
+    php85-zip \
     pnpm \
     postgresql18-client \
     proj-dev \
@@ -142,6 +170,10 @@ RUN case "$TARGETPLATFORM" in \
     && rm -f "terraform_${TF_VERSION}_"*
 
 ADD https://api.github.com/repos/gruntwork-io/terragrunt/releases/latest /tmp/terragrunt-release.json
+# The signing key now ships as a release asset rather than at a stable URL on
+# gruntwork.io, so the fingerprint is pinned here to keep the trust anchor
+# outside the release being verified.
+ARG TG_GPG_FINGERPRINT=68C80F86DF98E710C0F22E2E577774ACA847CC49
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") TG_ARCH="arm64" ;; \
         "linux/amd64") TG_ARCH="amd64" ;; \
@@ -155,13 +187,16 @@ RUN case "$TARGETPLATFORM" in \
     && curl -fsSLO "${TG_BASE_URL}/${TG_ARCHIVE}" \
     && curl -fsSLO "${TG_BASE_URL}/SHA256SUMS" \
     && curl -fsSLO "${TG_BASE_URL}/SHA256SUMS.gpgsig" \
-    && curl -fsSL https://gruntwork.io/.well-known/pgp-key.txt | gpg --import \
+    && curl -fsSLO "${TG_BASE_URL}/terragrunt-signing-key.asc" \
+    && gpg --show-keys --with-colons terragrunt-signing-key.asc \
+        | grep -q "^fpr:*${TG_GPG_FINGERPRINT}:" \
+    && gpg --import terragrunt-signing-key.asc \
     && gpg --verify SHA256SUMS.gpgsig SHA256SUMS \
     && grep "  ${TG_ARCHIVE}$" SHA256SUMS | sha256sum -c \
     && tar -xzf "${TG_ARCHIVE}" \
     && chmod +x "/tmp/${TG_BINARY}" \
     && mv "/tmp/${TG_BINARY}" /usr/local/bin/terragrunt \
-    && rm -f "${TG_ARCHIVE}" SHA256SUMS SHA256SUMS.gpgsig
+    && rm -f "${TG_ARCHIVE}" SHA256SUMS SHA256SUMS.gpgsig terragrunt-signing-key.asc
 
 ADD https://api.github.com/repos/golangci/golangci-lint/releases/latest /tmp/golangci-lint-release.json
 RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s
@@ -182,6 +217,11 @@ RUN case "$TARGETPLATFORM" in \
     && chmod +x "hadolint-linux-${HADOLINT_ARCH}" \
     && mv "hadolint-linux-${HADOLINT_ARCH}" /usr/local/bin/hadolint \
     && rm -f checksums.sha256
+
+# aws-saml-auth
+ADD https://pypi.org/pypi/aws-saml-auth/json /tmp/aws-saml-auth-release.json
+RUN UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin \
+    uv tool install --python /usr/bin/python3 aws-saml-auth
 
 ADD https://go.dev/VERSION?m=text /tmp/go-version
 RUN apk add --no-cache curl tar ca-certificates \
@@ -225,7 +265,11 @@ RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/he
 RUN curl -fsSL https://bun.com/install | bash \
   && mv ~/.bun/bin/bun /usr/local/bin/bun
 
-# chrome-devtools-mcp bridge to a Chrome running on the host (see script header)
+# chrome-devtools-mcp bridge to a Chrome running on the host (see script header).
+# Installed as a global binary rather than resolved through `npx` on every spawn,
+# which otherwise makes each agent's MCP startup wait on the npm registry.
+ADD https://registry.npmjs.org/chrome-devtools-mcp/latest /tmp/chrome-devtools-mcp-latest.json
+RUN npm install -g chrome-devtools-mcp
 COPY chrome-devtools-mcp-host /usr/local/bin/chrome-devtools-mcp-host
 RUN chmod +x /usr/local/bin/chrome-devtools-mcp-host
 
@@ -237,6 +281,10 @@ RUN chmod +x /usr/local/bin/chrome-devtools-mcp-host
 # repository". Trust every directory at the system level (read regardless of the
 # read-only ~/.gitconfig mount and by any UID) so git works across backends.
 RUN git config --system --add safe.directory '*'
+
+# Register the LFS filters system-wide; the per-user `git lfs install`
+# cannot write to the read-only ~/.gitconfig mount.
+RUN git lfs install --system
 
 RUN addgroup -S agent && adduser -S agent -G agent -s /bin/zsh
 USER agent
@@ -293,6 +341,7 @@ RUN echo 'source ~/.tab_color.zsh' >> ~/.zshrc
 RUN echo 'export AWS_PAGER=""' >> ~/.zshrc
 
 RUN echo 'export PATH="/usr/local/go/bin:$PATH"' >> ~/.zshrc
+RUN echo 'export PATH="$HOME/.composer/vendor/bin:$PATH"' >> ~/.zshrc
 RUN echo 'export PATH="$PNPM_HOME/bin:$PATH"' >> ~/.zshrc
 RUN echo 'export USE_BUILTIN_RIPGREP=0' >> ~/.zshrc
 

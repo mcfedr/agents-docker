@@ -10,55 +10,66 @@ build-no-cache:
 run:
 	docker run -it --rm mcfedr/agents
 
-# One-time host setup for `make chrome`. Installs the MCP server and gateway as
-# stable global binaries so the child isn't re-resolved through npx on spawn.
-chrome-install:
-	npm install -g chrome-devtools-mcp supergateway
-
-# Run chrome-devtools-mcp on the host (it launches & drives the browser itself)
-# and expose it over streamable HTTP so the containerised agents can connect via
-# http://host.docker.internal:8222/mcp
+# Run the browser the agents drive. Only Chrome runs on the host: each agent
+# starts its own chrome-devtools-mcp inside the container (via the
+# chrome-devtools-mcp-host wrapper) and attaches to this one over CDP, so many
+# agents share the browser without contending for the profile lock that
+# chrome-devtools-mcp takes when it launches Chrome itself.
 #
-# --stateful keeps ONE persistent child process and browser across requests.
-# Without it supergateway defaults to stateless, spawning a fresh browser per
-# request (state is lost between tool calls, and concurrent spawns race).
+# The profile is the one chrome-devtools-mcp used to launch for itself, so
+# existing logins and cookies carry over. It must not be Chrome's default
+# profile: since Chrome 136 the remote debugging port is ignored there.
 #
-# No --isolated: chrome-devtools-mcp then uses its default persistent profile
-# (~/.cache/chrome-devtools-mcp/chrome-profile), so logins/cookies survive
-# restarts. Add --user-data-dir only to override that location.
 # Managed as a launchd agent for crash-restart (KeepAlive) supervision while
 # logged in. The plist is bootstrapped from the repo, NOT installed into
 # ~/Library/LaunchAgents, so it does not auto-load — it stays gone after
-# logout/reboot until you run `make chrome` again.
+# logout/reboot until you run `make chrome-start` again.
 CHROME_LOG := /tmp/agents-chrome.log
 CHROME_LABEL := com.mcfedr.agents-chrome
 CHROME_PLIST_TMPL := $(CURDIR)/com.mcfedr.agents-chrome.plist
 CHROME_PLIST := /tmp/agents-chrome.plist
 LAUNCHD_DOMAIN := gui/$(shell id -u)
+CHROME_BIN ?= /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
+CHROME_PROFILE ?= $(HOME_DIR)/.cache/chrome-devtools-mcp/chrome-profile
+# Not 9222: other Chromium builds (Brave in particular) claim it, and a browser
+# that gets there first takes IPv4 loopback while ours silently falls back to
+# [::1], which containers cannot reach through host.docker.internal.
+CHROME_PORT ?= 9333
 
 # Run in the foreground (no launchd). This is the single source of truth for the
-# gateway command; `chrome-start` runs the very same target under launchd.
+# browser command; `chrome-start` runs the very same target under launchd.
+#
+# --no-startup-window keeps the browser process (and the debugging port) alive
+# without painting a window, so a browser supervised around the clock does not
+# sit on screen. The first agent to open a page gets a window; closing it leaves
+# Chrome running and ready. Swap in --headless=new to never see it at all, at
+# the cost of not being able to watch or log in interactively.
 chrome:
-	supergateway --stdio "chrome-devtools-mcp" --outputTransport streamableHttp --stateful --sessionTimeout 600000 --port 8222
+	"$(CHROME_BIN)" \
+		--remote-debugging-port=$(CHROME_PORT) \
+		--user-data-dir="$(CHROME_PROFILE)" \
+		--no-startup-window \
+		--no-first-run \
+		--no-default-browser-check
 
-# Start the gateway under launchd in the background (idempotent). Bakes the repo
+# Start the browser under launchd in the background (idempotent). Bakes the repo
 # path into a /tmp copy of the plist template, which then runs `make chrome`.
 chrome-start:
 	@if launchctl print $(LAUNCHD_DOMAIN)/$(CHROME_LABEL) >/dev/null 2>&1; then \
-		echo "chrome gateway already running ($(CHROME_LABEL))"; \
+		echo "chrome already running ($(CHROME_LABEL))"; \
 	else \
 		sed 's|__WORKDIR__|$(CURDIR)|' $(CHROME_PLIST_TMPL) > $(CHROME_PLIST) && \
 		launchctl bootstrap $(LAUNCHD_DOMAIN) $(CHROME_PLIST) && \
-		echo "chrome gateway started ($(CHROME_LABEL)), logs: $(CHROME_LOG)"; \
+		echo "chrome started ($(CHROME_LABEL)), logs: $(CHROME_LOG)"; \
 	fi
 
-# Stop and unload the backgrounded gateway.
+# Stop and unload the backgrounded browser.
 chrome-stop:
 	@if launchctl print $(LAUNCHD_DOMAIN)/$(CHROME_LABEL) >/dev/null 2>&1; then \
 		launchctl bootout $(LAUNCHD_DOMAIN)/$(CHROME_LABEL) && \
-		echo "chrome gateway stopped ($(CHROME_LABEL))"; \
+		echo "chrome stopped ($(CHROME_LABEL))"; \
 	else \
-		echo "chrome gateway not running"; \
+		echo "chrome not running"; \
 	fi
 
 # Show status of the launchd agent.
@@ -95,7 +106,7 @@ docker-credhelpers:
 	merge $(HOME_DIR)/.docker_agents_smartsuite/config.json '$(CREDHELPERS_SMARTSUITE)'; \
 	merge $(HOME_DIR)/.docker_agents_ekreative/config.json '$(CREDHELPERS_EKREATIVE)'
 
-.PHONY: build chrome-install chrome chrome-start chrome-stop chrome-status chrome-logs install docker-credhelpers
+.PHONY: build chrome chrome-start chrome-stop chrome-status chrome-logs install docker-credhelpers
 
 install: docker-credhelpers
 	mkdir -p $(HOME_DIR)/.claude_agents
@@ -117,6 +128,9 @@ install: docker-credhelpers
 	mkdir -p $(HOME_DIR)/.docker_agents
 	mkdir -p $(HOME_DIR)/.docker_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.docker_agents_ekreative
+	mkdir -p $(HOME_DIR)/.composer_agents
+	mkdir -p $(HOME_DIR)/.composer_agents_smartsuite
+	mkdir -p $(HOME_DIR)/.composer_agents_ekreative
 	mkdir -p $(HOME_DIR)/.terraform_d_agents/plugin-cache
 	mkdir -p $(HOME_DIR)/.ssh_agents
 	mkdir -p $(HOME_DIR)/.config/glab-cli_agents
@@ -132,9 +146,9 @@ install: docker-credhelpers
 	mkdir -p $(HOME_DIR)/.config/gcloud_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.config/gcloud_agents_ekreative
 	mkdir -p $(HOME_DIR)/.config/acli
-	mkdir -p $(HOME_DIR)/.config/atuin
+	mkdir -p $(HOME_DIR)/.config/atuin_agents
 	mkdir -p $(HOME_DIR)/.config/direnv
-	mkdir -p $(HOME_DIR)/.local/share/atuin
+	mkdir -p $(HOME_DIR)/.local/share/atuin_agents
 	mkdir -p $(HOME_DIR)/.local/share/direnv
 	mkdir -p $(HOME_DIR)/.local/share/uv_agents
 	mkdir -p $(HOME_DIR)/.pnpm_agents
