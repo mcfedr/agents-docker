@@ -91,7 +91,7 @@ This opens a zsh shell inside the container with `~/my-project` mounted at its o
 | Cloud & infrastructure | AWS CLI, Azure CLI (az), Google Cloud CLI (gcloud, gsutil, bq), GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
 | Containers | docker CLI, docker compose, docker buildx (all driving the **host** daemon), docker-credential-ecr-login |
 | Kubernetes | kubectl, gke-gcloud-auth-plugin |
-| Databases | MariaDB client, PostgreSQL 18 client, libpq headers |
+| Databases | MariaDB client, PostgreSQL 18 client, libpq headers, Cloud SQL Auth Proxy (cloud-sql-proxy) |
 | Geospatial | GDAL 3.13 + gdal-tools (`gdalinfo`, `ogr2ogr`), GEOS, PROJ, and their headers |
 | Linters & formatters | hadolint, shellcheck, shfmt, golangci-lint |
 | Shell & productivity | zsh, starship, atuin, direnv, tmux, ripgrep, difftastic, jq, nano |
@@ -102,6 +102,12 @@ Alpine is musl-based, and many scientific/database Python packages publish only
 glibc (`manylinux`) wheels — so pip builds them from source in your venv. The
 image carries the headers those builds need, so a plain `uv venv` works without
 `--system-site-packages`.
+
+Those builds run under clang rather than gcc: `CC`/`CXX` are set image-wide and
+the `compiler-rt` runtime is installed. uv's own CPython builds for musl are
+compiled with clang and record clang-only options such as
+`--rtlib=compiler-rt` in the flags every extension build inherits, which gcc
+rejects with `unrecognized command-line option`.
 
 GDAL has no musl wheel and its Python bindings must match the system library
 exactly, so pin the version:

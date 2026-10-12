@@ -178,3 +178,10 @@ install: docker-credhelpers
 	touch $(HOME_DIR)/.claude/CLAUDE.md
 	ln -sfn $(CURDIR)/agents $(LOCAL_BIN)/agents
 	launchctl setenv OLLAMA_HOST "0.0.0.0:11434"
+
+plandesk-init:
+	npm i -g @plandesk/cli
+	plandesk init
+
+plandesk:
+	plandesk serve

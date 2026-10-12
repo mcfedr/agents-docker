@@ -24,7 +24,9 @@ RUN apk add --no-cache \
     bubblewrap \
     build-base \
     ca-certificates \
+    clang \
     clang-extra-tools \
+    compiler-rt \
     composer \
     composer-zsh-completion \
     curl \
@@ -105,22 +107,28 @@ RUN apk add --no-cache \
     zsh \
     zsh-completions
 
+# uv-managed CPython builds for musl are clang-built and record clang-only
+# options (--rtlib=compiler-rt) in their CFLAGS, which gcc rejects when
+# compiling C extensions, so clang is the default compiler.
+ENV CC=clang \
+    CXX=clang++
+
+# Every tool below resolves its version at build time. The paired ADD pulls the
+# upstream "latest" document into the layer, so a new release changes the layer
+# hash and the install re-runs; without it a plain `docker build` would serve a
+# cached layer forever and "latest" would only mean "latest at first build".
+ADD https://api.github.com/repos/starship/starship/releases/latest /tmp/starship-release.json
 RUN curl -sS https://starship.rs/install.sh | sh -s -- --yes
 
 ARG TARGETPLATFORM
+ARG TARGETARCH
 
 # Atlassian CLI
-RUN case "$TARGETPLATFORM" in \
-        "linux/arm64") ACLI_PLATFORM="linux_arm64" ;; \
-        "linux/amd64") ACLI_PLATFORM="linux_amd64" ;; \
-        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
-    esac \
-    && curl -LO "https://acli.atlassian.com/linux/latest/${ACLI_PLATFORM}/acli" \
-    && chmod +x acli \
-    && mv acli /usr/local/bin/acli
+ADD --chmod=755 https://acli.atlassian.com/linux/latest/acli_linux_${TARGETARCH}/acli /usr/local/bin/acli
 
 # Azure CLI — no Alpine package; installed into an isolated venv from prebuilt
 # musl wheels (--only-binary avoids needing a compiler / build headers).
+ADD https://pypi.org/pypi/azure-cli/json /tmp/azure-cli-release.json
 RUN python3 -m venv /opt/azure-cli \
     && /opt/azure-cli/bin/pip install --no-cache-dir --only-binary=:all: azure-cli \
     && ln -s /opt/azure-cli/bin/az /usr/local/bin/az
@@ -128,6 +136,7 @@ RUN python3 -m venv /opt/azure-cli \
 # Google Cloud CLI — no Alpine package. The bundled glibc python in the archive
 # can't run on musl, so gcloud is pointed at the system interpreter instead.
 ENV CLOUDSDK_PYTHON=/usr/bin/python3
+ADD https://dl.google.com/dl/cloudsdk/channels/rapid/components-2.json /tmp/gcloud-components.json
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") GCLOUD_ARCH="arm" ;; \
         "linux/amd64") GCLOUD_ARCH="x86_64" ;; \
@@ -137,19 +146,16 @@ RUN case "$TARGETPLATFORM" in \
     && tar -C /opt -xzf /tmp/gcloud.tar.gz \
     && rm /tmp/gcloud.tar.gz \
     && /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false --command-completion=false \
-    && /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin --quiet \
-    && for b in gcloud gsutil bq gke-gcloud-auth-plugin docker-credential-gcloud; do ln -s "/opt/google-cloud-sdk/bin/$b" "/usr/local/bin/$b"; done
+    && /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin cloud-sql-proxy --quiet \
+    && for b in gcloud gsutil bq gke-gcloud-auth-plugin cloud-sql-proxy docker-credential-gcloud; do ln -s "/opt/google-cloud-sdk/bin/$b" "/usr/local/bin/$b"; done
 
 # Atuin CLI
+ADD https://api.github.com/repos/atuinsh/atuin/releases/latest /tmp/atuin-release.json
 RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive \
     && mv ~/.atuin/bin/atuin /usr/local/bin/atuin
 
 RUN echo 'export IT2_TAB_COLOR=FF0000' >> /.envrc
 
-# Every tool below resolves its version at build time. The paired ADD pulls the
-# upstream "latest" document into the layer, so a new release changes the layer
-# hash and the install re-runs; without it a plain `docker build` would serve a
-# cached layer forever and "latest" would only mean "latest at first build".
 ADD https://api.releases.hashicorp.com/v1/releases/terraform/latest /tmp/terraform-release.json
 RUN case "$TARGETPLATFORM" in \
         "linux/arm64") TF_PLATFORM="linux_arm64" ;; \
@@ -162,8 +168,11 @@ RUN case "$TARGETPLATFORM" in \
     && wget "${TF_BASE_URL}/terraform_${TF_VERSION}_${TF_PLATFORM}.zip" \
     && wget "${TF_BASE_URL}/terraform_${TF_VERSION}_SHA256SUMS" \
     && wget "${TF_BASE_URL}/terraform_${TF_VERSION}_SHA256SUMS.sig" \
+    && export GNUPGHOME="$(mktemp -d)" \
     && wget -qO- https://www.hashicorp.com/.well-known/pgp-key.txt | gpg --import \
     && gpg --verify "terraform_${TF_VERSION}_SHA256SUMS.sig" "terraform_${TF_VERSION}_SHA256SUMS" \
+    && gpgconf --kill all \
+    && rm -rf "$GNUPGHOME" \
     && grep "terraform_${TF_VERSION}_${TF_PLATFORM}.zip" "terraform_${TF_VERSION}_SHA256SUMS" | sha256sum -c \
     && unzip "/tmp/terraform_${TF_VERSION}_${TF_PLATFORM}.zip" -d /tmp \
     && mv /tmp/terraform /usr/local/bin/terraform \
@@ -188,10 +197,13 @@ RUN case "$TARGETPLATFORM" in \
     && curl -fsSLO "${TG_BASE_URL}/SHA256SUMS" \
     && curl -fsSLO "${TG_BASE_URL}/SHA256SUMS.gpgsig" \
     && curl -fsSLO "${TG_BASE_URL}/terragrunt-signing-key.asc" \
+    && export GNUPGHOME="$(mktemp -d)" \
     && gpg --show-keys --with-colons terragrunt-signing-key.asc \
         | grep -q "^fpr:*${TG_GPG_FINGERPRINT}:" \
     && gpg --import terragrunt-signing-key.asc \
     && gpg --verify SHA256SUMS.gpgsig SHA256SUMS \
+    && gpgconf --kill all \
+    && rm -rf "$GNUPGHOME" \
     && grep "  ${TG_ARCHIVE}$" SHA256SUMS | sha256sum -c \
     && tar -xzf "${TG_ARCHIVE}" \
     && chmod +x "/tmp/${TG_BINARY}" \
@@ -258,10 +270,12 @@ RUN npm i -g @openai/codex
 # RUN curl -fsSL https://gh.io/copilot-install | bash
 
 # SonarQube CLI
+ADD https://binaries.sonarsource.com/Distribution/sonarqube-cli/stable.version /tmp/sonarqube-cli-version
 RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh | bash \
     && mv ~/.local/share/sonarqube-cli/bin/sonar /usr/local/bin/sonar
 
 # Bun
+ADD https://api.github.com/repos/oven-sh/bun/releases/latest /tmp/bun-release.json
 RUN curl -fsSL https://bun.com/install | bash \
   && mv ~/.bun/bin/bun /usr/local/bin/bun
 
