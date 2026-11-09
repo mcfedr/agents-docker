@@ -1,269 +1,187 @@
-FROM rust:alpine AS fnm-builder
-RUN apk add --no-cache git
-ARG FNM_REPO=https://github.com/mcfedr/fnm.git
-ARG FNM_BRANCH=arch
-# Bust the cache when the branch advances by baking the resolved commit into the layer.
-ADD https://api.github.com/repos/mcfedr/fnm/commits/arch /tmp/fnm-commit.json
-RUN git clone --depth 1 --branch "$FNM_BRANCH" "$FNM_REPO" /src
-WORKDIR /src
-# Cache the cargo registry and target dir across builds so only changed crates
-# recompile. The target mount isn't persisted in the layer, so copy the binary out.
-RUN --mount=type=cache,target=/usr/local/cargo/registry \
-    --mount=type=cache,target=/src/target \
-    cargo build --release \
-    && strip target/release/fnm \
-    && cp target/release/fnm /fnm
+FROM ubuntu:26.04
 
-FROM alpine:3
-
-RUN apk add --no-cache \
-    aws-cli \
-    aws-cli-doc \
-    aws-cli-zsh-completion \
-    bash \
+# The distro supplies the system pieces, the build toolchain and the headers that
+# native extensions compile against. These stay with apt so `gdal-config`,
+# `pg_config` and the headers match the shared libraries found at runtime.
+RUN apt-get update \
+    && DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
     bubblewrap \
-    build-base \
+    build-essential \
     ca-certificates \
     clang \
-    clang-extra-tools \
-    compiler-rt \
-    composer \
-    composer-zsh-completion \
+    clang-format \
+    clang-tidy \
+    clangd \
     curl \
-    curl-dev \
-    difftastic \
-    direnv \
-    docker-cli \
-    docker-cli-buildx \
-    docker-cli-compose \
-    docker-credential-ecr-login \
-    gdal \
-    gdal-dev \
-    gdal-tools \
-    geos-dev \
+    file \
+    gdal-bin \
     gettext \
     git \
-    git-lfs \
-    github-cli \
-    glab \
-    gnupg \
-    icu-dev \
-    icu-libs \
-    imagemagick \
-    jq \
-    kubectl \
-    kubectl-zsh-completion \
-    libcurl \
-    libgcc \
+    less \
+    libcairo2 \
+    libcurl4-openssl-dev \
+    libgdal-dev \
+    libgeos-dev \
+    libicu-dev \
+    libpango-1.0-0 \
+    libpangocairo-1.0-0 \
+    libpangoft2-1.0-0 \
     libpq-dev \
-    libstdc++ \
-    make \
-    mariadb-client \
+    libproj-dev \
+    libprotobuf-dev \
     openssh-client \
-    nano \
-    nodejs \
-    npm \
-    pandoc-cli \
-    php85 \
-    php85-bcmath \
-    php85-ctype \
-    php85-curl \
-    php85-dom \
-    php85-fileinfo \
-    php85-gd \
-    php85-iconv \
-    php85-intl \
-    php85-mbstring \
-    php85-openssl \
-    php85-pcntl \
-    php85-pdo \
-    php85-pdo_mysql \
-    php85-pdo_pgsql \
-    php85-pdo_sqlite \
-    php85-phar \
-    php85-posix \
-    php85-session \
-    php85-simplexml \
-    php85-sockets \
-    php85-tokenizer \
-    php85-xml \
-    php85-xmlwriter \
-    php85-zip \
-    pnpm \
-    postgresql18-client \
-    proj-dev \
-    protobuf-dev \
+    pkgconf \
+    procps \
     python3 \
     python3-dev \
+    python3-venv \
+    unzip \
+    zsh \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV LANG=C.UTF-8
+
+RUN userdel -r ubuntu \
+    && useradd -m -s /usr/bin/zsh -U agent \
+    && mkdir -p /home/linuxbrew/.linuxbrew \
+    && chown -R agent:agent /home/linuxbrew
+
+# The docker CLI only discovers plugins in fixed system directories (or via
+# ~/.docker/config.json, which is a host mount), so point one at brew's copies.
+RUN mkdir -p /usr/local/lib/docker/cli-plugins \
+    && ln -s /home/linuxbrew/.linuxbrew/lib/docker/cli-plugins/docker-buildx /usr/local/lib/docker/cli-plugins/docker-buildx \
+    && ln -s /home/linuxbrew/.linuxbrew/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-compose
+
+RUN echo 'export IT2_TAB_COLOR=FF0000' >> /.envrc
+
+# Keg-only formulae and the gcloud SDK's component bin go after the system dirs,
+# so apt's `pg_config` (matching libpq-dev) wins over brew libpq's.
+ENV HOMEBREW_PREFIX=/home/linuxbrew/.linuxbrew \
+    HOMEBREW_NO_ANALYTICS=1 \
+    HOMEBREW_NO_ENV_HINTS=1 \
+    PATH=/home/linuxbrew/.linuxbrew/bin:/home/linuxbrew/.linuxbrew/sbin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/home/linuxbrew/.linuxbrew/opt/rustup/bin:/home/linuxbrew/.linuxbrew/opt/libpq/bin:/home/linuxbrew/.linuxbrew/opt/mysql-client/bin:/home/linuxbrew/.linuxbrew/share/google-cloud-sdk/bin
+
+# Homebrew refuses to run as root. The prefix is owned by `agent`, so
+# `brew install`/`brew upgrade` also work inside a running container.
+USER agent
+RUN git clone https://github.com/Homebrew/brew /home/linuxbrew/.linuxbrew/Homebrew \
+    && mkdir -p /home/linuxbrew/.linuxbrew/bin \
+    && ln -s ../Homebrew/bin/brew /home/linuxbrew/.linuxbrew/bin/brew
+
+# A single install so brew resolves and downloads everything in one pass. Not
+# cache-busted: this layer only refreshes with `make build-no-cache`.
+#
+# Afterwards only the requested formulae stay linked. Dependency kegs (ICU,
+# libxml2, curl, Python...) would otherwise shadow apt's `icu-config`,
+# `xml2-config` and `python3`, and native extensions would build against brew's
+# headers while loading apt's libraries, or load brew's libraries next to apt's.
+# Brew's own tools reach their dependencies through opt/ paths.
+RUN --mount=type=cache,target=/home/agent/.cache/Homebrew,uid=1000,gid=1000 \
+    formulae=" \
+    atlassian/acli/acli \
+    atuin \
+    awscli \
+    bun \
+    chrome-devtools-mcp \
+    composer \
+    difftastic \
+    direnv \
+    docker \
+    docker-buildx \
+    docker-compose \
+    docker-credential-helper-ecr \
+    fnm \
+    gemini-cli \
+    gh \
+    git \
+    git-lfs \
+    glab \
+    gnupg \
+    go \
+    golangci-lint \
+    hadolint \
+    hashicorp/tap/terraform \
+    imagemagick \
+    jq \
+    kubernetes-cli \
+    libpq \
+    librsvg \
+    mysql-client \
+    nano \
+    node \
+    opencode \
+    pandoc \
+    php \
+    pnpm \
+    protobuf \
     ripgrep \
-    rsvg-convert \
     rustup \
     shellcheck \
     shfmt \
     socat \
+    starship \
+    terragrunt \
     tmux \
-    unzip \
     uv \
-    zsh \
-    zsh-completions
+    zsh-completions \
+    " \
+    && brew install $formulae \
+    anthropics/tap/ant \
+    claude-code \
+    codex \
+    gcloud-cli \
+    && brew list --formula \
+    | grep -vxF "$(printf '%s\n' $formulae | sed 's|.*/||')" \
+    | xargs --no-run-if-empty brew unlink
 
-# uv-managed CPython builds for musl are clang-built and record clang-only
-# options (--rtlib=compiler-rt) in their CFLAGS, which gcc rejects when
-# compiling C extensions, so clang is the default compiler.
-ENV CC=clang \
-    CXX=clang++
+RUN gcloud components install gke-gcloud-auth-plugin cloud-sql-proxy --quiet
 
-# Every tool below resolves its version at build time. The paired ADD pulls the
-# upstream "latest" document into the layer, so a new release changes the layer
-# hash and the install re-runs; without it a plain `docker build` would serve a
-# cached layer forever and "latest" would only mean "latest at first build".
-ADD https://api.github.com/repos/starship/starship/releases/latest /tmp/starship-release.json
-RUN curl -sS https://starship.rs/install.sh | sh -s -- --yes
+# The working directory is bind-mounted from the host, where it is owned by the
+# host user's UID (e.g. 503) rather than the container's `agent` user. Docker
+# Desktop's VirtioFS backend masks this by remapping ownership to the accessing
+# UID, but other file-sharing backends (gRPC-FUSE/osxfs) surface the raw host
+# UID, and git then refuses with "detected dubious ownership in repository".
+# Trust every directory at the system level (read regardless of the read-only
+# ~/.gitconfig mount and by any UID) so git works across backends. The LFS
+# filters are registered system-wide for the same reason.
+RUN git config --system --add safe.directory '*' \
+    && git lfs install --system
+
+USER root
 
 ARG TARGETPLATFORM
-ARG TARGETARCH
 
-# Atlassian CLI
-ADD --chmod=755 https://acli.atlassian.com/linux/latest/acli_linux_${TARGETARCH}/acli /usr/local/bin/acli
+# No Linux formula for these. uv's managed Python lives under /opt rather than
+# ~/.local/share/uv, which is a host mount at runtime.
+ARG UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/uv-python
+RUN uv tool install --managed-python azure-cli \
+    && uv tool install --managed-python aws-saml-auth \
+    && uv tool install --managed-python keyring --with keyrings.codeartifact
 
-# Azure CLI — no Alpine package; installed into an isolated venv from prebuilt
-# musl wheels (--only-binary avoids needing a compiler / build headers).
-ADD https://pypi.org/pypi/azure-cli/json /tmp/azure-cli-release.json
-RUN python3 -m venv /opt/azure-cli \
-    && /opt/azure-cli/bin/pip install --no-cache-dir --only-binary=:all: azure-cli \
-    && ln -s /opt/azure-cli/bin/az /usr/local/bin/az
+# Tools installed from upstream "latest" are each preceded by an ADD of the
+# release document, so a new release changes the layer hash and the install
+# re-runs instead of serving a cached layer forever.
 
-# Google Cloud CLI — no Alpine package. The bundled glibc python in the archive
-# can't run on musl, so gcloud is pointed at the system interpreter instead.
-ENV CLOUDSDK_PYTHON=/usr/bin/python3
-ADD https://dl.google.com/dl/cloudsdk/channels/rapid/components-2.json /tmp/gcloud-components.json
+# OpenAI API CLI — goreleaser archives verified against the release checksums file.
+ADD https://api.github.com/repos/openai/openai-cli/releases/latest /tmp/openai-cli-release.json
 RUN case "$TARGETPLATFORM" in \
-        "linux/arm64") GCLOUD_ARCH="arm" ;; \
-        "linux/amd64") GCLOUD_ARCH="x86_64" ;; \
-        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
-    esac \
-    && curl -fsSL "https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-cli-linux-${GCLOUD_ARCH}.tar.gz" -o /tmp/gcloud.tar.gz \
-    && tar -C /opt -xzf /tmp/gcloud.tar.gz \
-    && rm /tmp/gcloud.tar.gz \
-    && /opt/google-cloud-sdk/install.sh --quiet --usage-reporting=false --path-update=false --command-completion=false \
-    && /opt/google-cloud-sdk/bin/gcloud components install gke-gcloud-auth-plugin cloud-sql-proxy --quiet \
-    && for b in gcloud gsutil bq gke-gcloud-auth-plugin cloud-sql-proxy docker-credential-gcloud; do ln -s "/opt/google-cloud-sdk/bin/$b" "/usr/local/bin/$b"; done
-
-# Atuin CLI
-ADD https://api.github.com/repos/atuinsh/atuin/releases/latest /tmp/atuin-release.json
-RUN curl --proto '=https' --tlsv1.2 -LsSf https://setup.atuin.sh | sh -s -- --non-interactive \
-    && mv ~/.atuin/bin/atuin /usr/local/bin/atuin
-
-RUN echo 'export IT2_TAB_COLOR=FF0000' >> /.envrc
-
-ADD https://api.releases.hashicorp.com/v1/releases/terraform/latest /tmp/terraform-release.json
-RUN case "$TARGETPLATFORM" in \
-        "linux/arm64") TF_PLATFORM="linux_arm64" ;; \
-        "linux/amd64") TF_PLATFORM="linux_amd64" ;; \
+        "linux/arm64") OPENAI_CLI_ARCH="arm64" ;; \
+        "linux/amd64") OPENAI_CLI_ARCH="amd64" ;; \
         *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
     esac \
     && cd /tmp \
-    && TF_VERSION="$(jq -re .version /tmp/terraform-release.json)" \
-    && TF_BASE_URL="https://releases.hashicorp.com/terraform/${TF_VERSION}" \
-    && wget "${TF_BASE_URL}/terraform_${TF_VERSION}_${TF_PLATFORM}.zip" \
-    && wget "${TF_BASE_URL}/terraform_${TF_VERSION}_SHA256SUMS" \
-    && wget "${TF_BASE_URL}/terraform_${TF_VERSION}_SHA256SUMS.sig" \
-    && export GNUPGHOME="$(mktemp -d)" \
-    && wget -qO- https://www.hashicorp.com/.well-known/pgp-key.txt | gpg --import \
-    && gpg --verify "terraform_${TF_VERSION}_SHA256SUMS.sig" "terraform_${TF_VERSION}_SHA256SUMS" \
-    && gpgconf --kill all \
-    && rm -rf "$GNUPGHOME" \
-    && grep "terraform_${TF_VERSION}_${TF_PLATFORM}.zip" "terraform_${TF_VERSION}_SHA256SUMS" | sha256sum -c \
-    && unzip "/tmp/terraform_${TF_VERSION}_${TF_PLATFORM}.zip" -d /tmp \
-    && mv /tmp/terraform /usr/local/bin/terraform \
-    && rm -f "terraform_${TF_VERSION}_"*
-
-ADD https://api.github.com/repos/gruntwork-io/terragrunt/releases/latest /tmp/terragrunt-release.json
-# The signing key now ships as a release asset rather than at a stable URL on
-# gruntwork.io, so the fingerprint is pinned here to keep the trust anchor
-# outside the release being verified.
-ARG TG_GPG_FINGERPRINT=68C80F86DF98E710C0F22E2E577774ACA847CC49
-RUN case "$TARGETPLATFORM" in \
-        "linux/arm64") TG_ARCH="arm64" ;; \
-        "linux/amd64") TG_ARCH="amd64" ;; \
-        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
-    esac \
-    && cd /tmp \
-    && TERRAGRUNT_VERSION="$(jq -re .tag_name /tmp/terragrunt-release.json)" \
-    && TG_ARCHIVE="terragrunt_linux_${TG_ARCH}.tar.gz" \
-    && TG_BINARY="terragrunt_linux_${TG_ARCH}" \
-    && TG_BASE_URL="https://github.com/gruntwork-io/terragrunt/releases/download/${TERRAGRUNT_VERSION}" \
-    && curl -fsSLO "${TG_BASE_URL}/${TG_ARCHIVE}" \
-    && curl -fsSLO "${TG_BASE_URL}/SHA256SUMS" \
-    && curl -fsSLO "${TG_BASE_URL}/SHA256SUMS.gpgsig" \
-    && curl -fsSLO "${TG_BASE_URL}/terragrunt-signing-key.asc" \
-    && export GNUPGHOME="$(mktemp -d)" \
-    && gpg --show-keys --with-colons terragrunt-signing-key.asc \
-        | grep -q "^fpr:*${TG_GPG_FINGERPRINT}:" \
-    && gpg --import terragrunt-signing-key.asc \
-    && gpg --verify SHA256SUMS.gpgsig SHA256SUMS \
-    && gpgconf --kill all \
-    && rm -rf "$GNUPGHOME" \
-    && grep "  ${TG_ARCHIVE}$" SHA256SUMS | sha256sum -c \
-    && tar -xzf "${TG_ARCHIVE}" \
-    && chmod +x "/tmp/${TG_BINARY}" \
-    && mv "/tmp/${TG_BINARY}" /usr/local/bin/terragrunt \
-    && rm -f "${TG_ARCHIVE}" SHA256SUMS SHA256SUMS.gpgsig terragrunt-signing-key.asc
-
-ADD https://api.github.com/repos/golangci/golangci-lint/releases/latest /tmp/golangci-lint-release.json
-RUN curl -sSfL https://golangci-lint.run/install.sh | sh -s
-
-# hadolint (Dockerfile linter) — not packaged in the Alpine repos
-ADD https://api.github.com/repos/hadolint/hadolint/releases/latest /tmp/hadolint-release.json
-RUN case "$TARGETPLATFORM" in \
-        "linux/arm64") HADOLINT_ARCH="arm64" ;; \
-        "linux/amd64") HADOLINT_ARCH="x86_64" ;; \
-        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
-    esac \
-    && cd /tmp \
-    && HADOLINT_VERSION="$(jq -re .tag_name /tmp/hadolint-release.json)" \
-    && HADOLINT_BASE_URL="https://github.com/hadolint/hadolint/releases/download/${HADOLINT_VERSION}" \
-    && curl -fsSLO "${HADOLINT_BASE_URL}/hadolint-linux-${HADOLINT_ARCH}" \
-    && curl -fsSLO "${HADOLINT_BASE_URL}/checksums.sha256" \
-    && grep "hadolint-linux-${HADOLINT_ARCH}$" checksums.sha256 | sha256sum -c \
-    && chmod +x "hadolint-linux-${HADOLINT_ARCH}" \
-    && mv "hadolint-linux-${HADOLINT_ARCH}" /usr/local/bin/hadolint \
-    && rm -f checksums.sha256
-
-# aws-saml-auth
-ADD https://pypi.org/pypi/aws-saml-auth/json /tmp/aws-saml-auth-release.json
-RUN UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin \
-    uv tool install --python /usr/bin/python3 aws-saml-auth
-
-ADD https://go.dev/VERSION?m=text /tmp/go-version
-RUN apk add --no-cache curl tar ca-certificates \
-    && case "$TARGETPLATFORM" in \
-        "linux/arm64") GO_ARCH="arm64" ;; \
-        "linux/amd64") GO_ARCH="amd64" ;; \
-        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
-    esac \
-    && GO_VERSION="$(sed -n '1s/^go//p' /tmp/go-version)" \
-    && curl -L "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" -o /tmp/go.tar.gz \
-    && tar -C /usr/local -xzf /tmp/go.tar.gz \
-    && rm /tmp/go.tar.gz
-
-# OpenCode
-ADD https://registry.npmjs.org/opencode-ai/latest /tmp/opencode-ai-latest.json
-RUN npm install -g opencode-ai
-
-# Claude CLI
-ADD https://registry.npmjs.org/@anthropic-ai/claude-code/latest /tmp/claude-code-latest.json
-RUN npm install -g @anthropic-ai/claude-code
-ENV USE_BUILTIN_RIPGREP=0
-
-# Gemini CLI
-ADD https://registry.npmjs.org/@google/gemini-cli/latest /tmp/gemini-cli-latest.json
-RUN npm install -g @google/gemini-cli
-# RUN curl -fsSL https://antigravity.google/cli/install.sh | bash
-
-# Codex
-ADD https://registry.npmjs.org/@openai/codex/latest /tmp/codex-latest.json
-RUN npm i -g @openai/codex
+    && OPENAI_CLI_TAG="$(jq -re .tag_name /tmp/openai-cli-release.json)" \
+    && OPENAI_CLI_VERSION="${OPENAI_CLI_TAG#v}" \
+    && OPENAI_CLI_ARCHIVE="openai_${OPENAI_CLI_VERSION}_linux_${OPENAI_CLI_ARCH}.tar.gz" \
+    && OPENAI_CLI_SUMS="openai_${OPENAI_CLI_VERSION}_checksums.txt" \
+    && OPENAI_CLI_BASE_URL="https://github.com/openai/openai-cli/releases/download/${OPENAI_CLI_TAG}" \
+    && curl -fsSLO "${OPENAI_CLI_BASE_URL}/${OPENAI_CLI_ARCHIVE}" \
+    && curl -fsSLO "${OPENAI_CLI_BASE_URL}/${OPENAI_CLI_SUMS}" \
+    && grep "  ${OPENAI_CLI_ARCHIVE}$" "${OPENAI_CLI_SUMS}" | sha256sum -c \
+    && tar -xzf "${OPENAI_CLI_ARCHIVE}" -C /usr/local/bin openai \
+    && mkdir -p /usr/local/share/zsh/site-functions \
+    && openai @completion zsh > /usr/local/share/zsh/site-functions/_openai \
+    && rm -f "${OPENAI_CLI_ARCHIVE}" "${OPENAI_CLI_SUMS}"
 
 # Copilot CLI
 # checksum fail
@@ -274,51 +192,16 @@ ADD https://binaries.sonarsource.com/Distribution/sonarqube-cli/stable.version /
 RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh | bash \
     && mv ~/.local/share/sonarqube-cli/bin/sonar /usr/local/bin/sonar
 
-# Bun
-ADD https://api.github.com/repos/oven-sh/bun/releases/latest /tmp/bun-release.json
-RUN curl -fsSL https://bun.com/install | bash \
-  && mv ~/.bun/bin/bun /usr/local/bin/bun
-
 # chrome-devtools-mcp bridge to a Chrome running on the host (see script header).
-# Installed as a global binary rather than resolved through `npx` on every spawn,
-# which otherwise makes each agent's MCP startup wait on the npm registry.
-ADD https://registry.npmjs.org/chrome-devtools-mcp/latest /tmp/chrome-devtools-mcp-latest.json
-RUN npm install -g chrome-devtools-mcp
-COPY chrome-devtools-mcp-host /usr/local/bin/chrome-devtools-mcp-host
-RUN chmod +x /usr/local/bin/chrome-devtools-mcp-host
+COPY --chmod=755 chrome-devtools-mcp-host /usr/local/bin/chrome-devtools-mcp-host
 
-# The working directory is bind-mounted from the host, where it is owned by the
-# host user's UID (e.g. 503) rather than the container's `agent` user (UID 100).
-# Docker Desktop's VirtioFS backend masks this by remapping ownership to the
-# accessing UID, but other file-sharing backends (gRPC-FUSE/osxfs) surface the
-# raw host UID, and git then refuses with "detected dubious ownership in
-# repository". Trust every directory at the system level (read regardless of the
-# read-only ~/.gitconfig mount and by any UID) so git works across backends.
-RUN git config --system --add safe.directory '*'
-
-# Register the LFS filters system-wide; the per-user `git lfs install`
-# cannot write to the read-only ~/.gitconfig mount.
-RUN git lfs install --system
-
-RUN addgroup -S agent && adduser -S agent -G agent -s /bin/zsh
 USER agent
 SHELL ["/bin/zsh", "-c"]
 
-# fnm — custom build from https://github.com/Schniz/fnm/pull/1562
-# adds FNM_ARCH=arm64-musl support for Alpine
-COPY --from=fnm-builder /fnm /usr/local/bin/fnm
-RUN echo 'eval "$(fnm env --use-on-cd --shell zsh)"' >> ~/.zshrc
+RUN echo 'eval "$(fnm env --use-on-cd --shell zsh)"' >> ~/.zshrc \
+    && echo 'export FNM_COREPACK_ENABLED=true' >> ~/.zshrc
 
-RUN echo 'export FNM_COREPACK_ENABLED=true' >> ~/.zshrc \
-    && echo 'export FNM_NODE_DIST_MIRROR=https://unofficial-builds.nodejs.org/download/release/' >> ~/.zshrc
-
-RUN case "$TARGETPLATFORM" in \
-        "linux/arm64") echo 'export FNM_ARCH=arm64-musl' >> ~/.zshrc ;; \
-        "linux/amd64") echo 'export FNM_ARCH=x64-musl' >> ~/.zshrc ;; \
-        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
-    esac
-
-RUN echo 'export PATH="$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
+RUN echo 'export PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH"' >> ~/.zshrc
 
 RUN echo 'eval "$(starship init zsh)"' >> ~/.zshrc
 RUN echo 'eval "$(atuin init zsh)"' >> ~/.zshrc
@@ -327,23 +210,21 @@ RUN echo 'eval "$(direnv hook zsh)"' >> ~/.zshrc
 RUN echo 'bindkey "^[[H" beginning-of-line' >> ~/.zshrc \
     && echo 'bindkey "^[[F" end-of-line' >> ~/.zshrc
 
-RUN echo 'autoload -Uz compinit' >> ~/.zshrc \
+RUN echo 'fpath+=($HOMEBREW_PREFIX/share/zsh/site-functions $HOMEBREW_PREFIX/share/zsh-completions)' >> ~/.zshrc \
+    && echo 'autoload -Uz compinit' >> ~/.zshrc \
     && echo 'compinit' >> ~/.zshrc
 
-# Both ship as scripts to source rather than autoloadable _name functions, so
-# compinit never picks them up off fpath by itself. They also route bash-style
-# completers through bashcompinit, which needs the completion system already
-# initialised — hence after the compinit above.
-RUN echo 'source /opt/google-cloud-sdk/completion.zsh.inc' >> ~/.zshrc \
-    && echo 'source /usr/share/zsh/site-functions/aws_zsh_completer.sh' >> ~/.zshrc
+# gcloud ships a script to source rather than an autoloadable _name function, so
+# compinit never picks it up off fpath by itself. It routes through
+# bashcompinit, which needs the completion system already initialised.
+RUN echo 'source $HOMEBREW_PREFIX/share/google-cloud-sdk/completion.zsh.inc' >> ~/.zshrc
 
 # Terraform and Terragrunt ship no completion file at all — each binary answers
 # the bash `complete -C` protocol itself over COMP_LINE/COMP_POINT, which is all
-# their -install-autocomplete flags wire up. bashcompinit is repeated here (the
-# completers above also load it) so the block stands on its own.
+# their -install-autocomplete flags wire up.
 RUN echo 'autoload -Uz bashcompinit && bashcompinit' >> ~/.zshrc \
-    && echo 'complete -o nospace -C /usr/local/bin/terraform terraform' >> ~/.zshrc \
-    && echo 'complete -o nospace -C /usr/local/bin/terragrunt terragrunt' >> ~/.zshrc
+    && echo 'complete -o nospace -C $HOMEBREW_PREFIX/bin/terraform terraform' >> ~/.zshrc \
+    && echo 'complete -o nospace -C $HOMEBREW_PREFIX/bin/terragrunt terragrunt' >> ~/.zshrc
 
 RUN curl -L https://iterm2.com/shell_integration/zsh \
     -o ~/.iterm2_shell_integration.zsh \
@@ -354,10 +235,10 @@ RUN echo 'source ~/.tab_color.zsh' >> ~/.zshrc
 
 RUN echo 'export AWS_PAGER=""' >> ~/.zshrc
 
-RUN echo 'export PATH="/usr/local/go/bin:$PATH"' >> ~/.zshrc
 RUN echo 'export PATH="$HOME/.composer/vendor/bin:$PATH"' >> ~/.zshrc
 RUN echo 'export PATH="$PNPM_HOME/bin:$PATH"' >> ~/.zshrc
-RUN echo 'export USE_BUILTIN_RIPGREP=0' >> ~/.zshrc
+
+ENV USE_BUILTIN_RIPGREP=0
 
 WORKDIR /home/agent
 ENTRYPOINT ["zsh", "--login"]

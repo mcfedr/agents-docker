@@ -64,7 +64,6 @@ It only ever adds entries — removing a registry means editing the file by hand
 ## Prerequisites
 
 - Docker (with support for `--cap-add=SYS_ADMIN` and `--net=host` — needed for Claude CLI's bubblewrap sandbox and host network access)
-- ARM64 host (the Atlassian CLI binary is arm64; everything else is architecture-neutral via Alpine packages)
 
 ## Getting started
 
@@ -91,41 +90,37 @@ This opens a zsh shell inside the container with `~/my-project` mounted at its o
 | Cloud & infrastructure | AWS CLI, Azure CLI (az), Google Cloud CLI (gcloud, gsutil, bq), GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
 | Containers | docker CLI, docker compose, docker buildx (all driving the **host** daemon), docker-credential-ecr-login |
 | Kubernetes | kubectl, gke-gcloud-auth-plugin |
-| Databases | MariaDB client, PostgreSQL 18 client, libpq headers, Cloud SQL Auth Proxy (cloud-sql-proxy) |
+| Databases | MySQL client, PostgreSQL 18 client, libpq headers, Cloud SQL Auth Proxy (cloud-sql-proxy) |
 | Geospatial | GDAL 3.13 + gdal-tools (`gdalinfo`, `ogr2ogr`), GEOS, PROJ, and their headers |
 | Linters & formatters | hadolint, shellcheck, shfmt, golangci-lint |
 | Shell & productivity | zsh, starship, atuin, direnv, tmux, ripgrep, difftastic, jq, nano |
 
 ## Python native extensions
 
-Alpine is musl-based, and many scientific/database Python packages publish only
-glibc (`manylinux`) wheels — so pip builds them from source in your venv. The
-image carries the headers those builds need, so a plain `uv venv` works without
+The image carries the development headers native builds need (GDAL, GEOS, PROJ,
+ICU, libpq, libcurl, protobuf), installed from apt so they match the shared
+libraries on the runtime linker path. A plain `uv venv` works without
 `--system-site-packages`.
 
-Those builds run under clang rather than gcc: `CC`/`CXX` are set image-wide and
-the `compiler-rt` runtime is installed. uv's own CPython builds for musl are
-compiled with clang and record clang-only options such as
-`--rtlib=compiler-rt` in the flags every extension build inherits, which gcc
-rejects with `unrecognized command-line option`.
-
-GDAL has no musl wheel and its Python bindings must match the system library
-exactly, so pin the version:
+GDAL's Python bindings must match the system library exactly, so pin the version:
 
 ```bash
 uv venv && source .venv/bin/activate
-uv pip install "gdal==$(gdal-config --version)"    # ~30s, compiles against system GDAL
+uv pip install "gdal==$(gdal-config --version)"    # compiles against system GDAL
 ```
 
-`rasterio`, `fiona` and `geopandas` are likewise source builds against the same
-headers. `shapely`, `pyproj`, `psycopg2-binary`, `psycopg[binary]` and `asyncpg`
-ship musl wheels and install instantly. `psycopg2`, `psycopg[c]` and `pymongo`
-build from source against the bundled headers.
+`rasterio`, `fiona`, `shapely`, `pyproj`, `psycopg2-binary` and `psycopg[binary]`
+install from manylinux wheels.
 
-**Known gap:** pymongo's `zstd` wire compression is unavailable. Alpine's
-python3 ships the `compression.zstd` wrapper without the `_zstd` C extension,
-and `backports.zstd` refuses to install on Python 3.14 by design. Use `zlib` or
-`snappy` compression instead — both work.
+## Installing more tools
+
+Homebrew lives at `/home/linuxbrew/.linuxbrew` and is owned by the `agent` user,
+so `brew install <formula>` works inside a running container. Anything installed
+that way is lost when the container is recreated; add it to the `brew install`
+in the `Dockerfile` to keep it.
+
+The brew layer is not refreshed by a plain `make build`; use
+`make build-no-cache` to pick up new tool versions.
 
 ## Browser automation with Chrome DevTools MCP
 
