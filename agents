@@ -18,6 +18,7 @@ $HOME/projects/smartsuite | $HOME/projects/smartsuite/*)
     opencode_share=~/.local/share/opencode_agents_smartsuite
     opencode_state=~/.local/state/opencode_agents_smartsuite
     gh_dir=~/.config/gh_agents_smartsuite
+    anthropic_dir=~/.config/anthropic_agents_smartsuite
     kube_dir=~/.kube_agents_smartsuite
     gcloud_dir=~/.config/gcloud_agents_smartsuite
     aws_dir=~/.aws_agents_smartsuite
@@ -36,6 +37,7 @@ $HOME/projects | $HOME/projects/*)
     opencode_share=~/.local/share/opencode_agents_ekreative
     opencode_state=~/.local/state/opencode_agents_ekreative
     gh_dir=~/.config/gh_agents_ekreative
+    anthropic_dir=~/.config/anthropic_agents_ekreative
     kube_dir=~/.kube_agents_ekreative
     gcloud_dir=~/.config/gcloud_agents_ekreative
     aws_dir=~/.aws_agents_ekreative
@@ -54,6 +56,7 @@ $HOME/projects | $HOME/projects/*)
     opencode_share=~/.local/share/opencode_agents
     opencode_state=~/.local/state/opencode_agents
     gh_dir=~/.config/gh_agents
+    anthropic_dir=~/.config/anthropic_agents
     kube_dir=~/.kube_agents
     gcloud_dir=~/.config/gcloud_agents
     aws_dir=~/.aws_agents
@@ -116,6 +119,7 @@ if [[ -z "$running" ]]; then
         -v ~/.ssh_agents:/home/agent/.ssh:ro \
         -v $glab_dir:/home/agent/.config/glab-cli \
         -v $gh_dir:/home/agent/.config/gh \
+        -v $anthropic_dir:/home/agent/.config/anthropic \
         -v $kube_dir:/home/agent/.kube \
         -v $gcloud_dir:/home/agent/.config/gcloud \
         -v ~/.config/acli:/home/agent/.config/acli:ro \
