@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.mcfedr.agents-chrome-socket</string>
+
+	<!-- launchd owns the port the containers connect to and runs one relay per
+	     connection, with the connection as its stdin/stdout. -->
+	<key>ProgramArguments</key>
+	<array>
+		<string>__WORKDIR__/agents-chrome</string>
+		<string>connect</string>
+	</array>
+	<key>inetdCompatibility</key>
+	<dict>
+		<key>Wait</key>
+		<false/>
+	</dict>
+
+	<!-- IPv4 loopback is what host.docker.internal reaches. -->
+	<key>Sockets</key>
+	<dict>
+		<key>Listeners</key>
+		<dict>
+			<key>SockNodeName</key>
+			<string>127.0.0.1</string>
+			<key>SockServiceName</key>
+			<string>__PORT__</string>
+			<key>SockFamily</key>
+			<string>IPv4</string>
+		</dict>
+	</dict>
+</dict>
+</plist>

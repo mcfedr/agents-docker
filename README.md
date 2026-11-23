@@ -44,7 +44,7 @@ and Artifact Registry pulls work without an explicit `docker login`:
 |---|---|---|
 | `864514156870.dkr.ecr.us-east-2.amazonaws.com` | `ecr-login` | smartsuite |
 | `691282246055.dkr.ecr.us-east-1.amazonaws.com` | `ecr-login` | ekreative |
-| `europe-west1-docker.pkg.dev`, `us-east1-docker.pkg.dev` | `gcloud` | all |
+| `europe-west1-docker.pkg.dev`, `us-east1-docker.pkg.dev` | `gcloud` | all (only these for edrone) |
 
 Each helper reads the *same per-context state the rest of the tooling uses* —
 `ecr-login` picks up the context's `~/.aws` mount and `docker-credential-gcloud`
@@ -87,7 +87,7 @@ This opens a zsh shell inside the container with `~/my-project` mounted at its o
 |---|---|
 | AI assistants | Claude CLI, Gemini CLI, OpenAI Codex |
 | Languages & runtimes | Node.js, npm, pnpm, fnm (with corepack), Python 3, uv, Go |
-| Cloud & infrastructure | AWS CLI, Azure CLI (az), Google Cloud CLI (gcloud, gsutil, bq), GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
+| Cloud & infrastructure | AWS CLI, Azure CLI (az), Teams CLI (teams), Google Cloud CLI (gcloud, gsutil, bq), GitHub CLI (gh), GitLab CLI (glab), Atlassian CLI (acli) |
 | Containers | docker CLI, docker compose, docker buildx (all driving the **host** daemon), docker-credential-ecr-login |
 | Kubernetes | kubectl, gke-gcloud-auth-plugin |
 | Databases | MySQL client, PostgreSQL 18 client, libpq headers, Cloud SQL Auth Proxy (cloud-sql-proxy) |
@@ -146,6 +146,12 @@ make chrome CHROME_BIN="/Applications/Brave Browser.app/Contents/MacOS/Brave Bro
 claude mcp add chrome-devtools --scope user -- chrome-devtools-mcp-host
 ```
 
+For OpenCode (once per context — this persists in `~/.config/opencode/opencode.json`):
+
+```bash
+opencode mcp add chrome-devtools --global -- chrome-devtools-mcp-host
+```
+
 `chrome-devtools-mcp-host` is a wrapper shipped in the image. It puts a `socat` bridge on the container's `127.0.0.1:9333` forwarding to `host.docker.internal:9333`, then runs `chrome-devtools-mcp --browser-url http://127.0.0.1:9333`. The bridge exists because Chrome rejects any DevTools request whose `Host` header isn't `localhost` or a bare IP (DNS-rebinding protection), so pointing `--browser-url` straight at `host.docker.internal` returns 403.
 
 Restart `claude` and the `chrome-devtools` tools become available. If the [marketplace plugin](https://github.com/ChromeDevTools/chrome-devtools-mcp) is also enabled, disable it — it runs a bare `chrome-devtools-mcp` with no `--browser-url`, which tries to launch a browser that isn't in the container.
@@ -175,21 +181,23 @@ The `agents` script mounts these host paths into the container:
 | `~/.aws_agents` | `~/.aws` | read-write |
 | `~/.docker_agents` | `~/.docker` | read-write |
 | `/var/run/docker.sock` | `/var/run/docker.sock` | read-write |
-| `~/.ssh` | `~/.ssh` | read-only |
-| `~/.gitconfig` | `~/.gitconfig` | read-only |
+| `~/.ssh_agents` | `~/.ssh` | read-only |
+| `~/.gitconfig_agents` | `~/.gitconfig` | read-only |
 | `~/.npmrc` | `~/.npmrc` | read-only |
 | `~/.netrc` | `~/.netrc` | read-only |
 | `~/.config/gh` | `~/.config/gh` | read-only |
 | `~/.config/glab-cli` | `~/.config/glab-cli` | read-only |
 | `~/.kube_agents` | `~/.kube` | read-write |
 | `~/.config/gcloud_agents` | `~/.config/gcloud` | read-write |
+| `~/.azure_agents` | `~/.azure` | read-write |
+| `~/.config/teams-cli_agents` | `~/.config/teams-cli` | read-write |
 | `~/.config/acli` | `~/.config/acli` | read-only |
-| `~/.config/atuin` | `~/.config/atuin` | read-only |
+| `~/.config/atuin_agents` | `~/.config/atuin` | read-write |
 | `~/.config/starship.toml` | `~/.config/starship.toml` | read-only |
 | `~/.config/direnv` | `~/.config/direnv` | read-only |
-| `~/.local/share/atuin` | `~/.local/share/atuin` | read-write |
+| `~/.local/share/atuin_agents` | `~/.local/share/atuin` | read-write |
 | `~/.local/share/direnv` | `~/.local/share/direnv` | read-write |
 
-Several of these are per-context: the `agents` script picks a `_smartsuite` or `_ekreative` suffixed variant (e.g. `~/.aws_agents_smartsuite`, `~/.kube_agents_ekreative`) based on the working directory, falling back to the unsuffixed path shown above. `make install` creates every variant.
+Several of these are per-context: the `agents` script picks a `_smartsuite`, `_edrone` or `_ekreative` suffixed variant (e.g. `~/.aws_agents_smartsuite`, `~/.kube_agents_ekreative`) based on the working directory (`~/projects/smartsuite`, `~/projects/edrone`, then the rest of `~/projects`), falling back to the unsuffixed path shown above. `make install` creates every variant. Each context's `~/.ssh_agents_*` should hold only that context's keys, with its git key as the default `id_ed25519` (plus its own `config` and `known_hosts`), so an agent in one project cannot use another project's keys. Likewise each `~/.gitconfig_agents_*` is a complete standalone config with that context's identity.
 
 Make sure these host paths exist before running `agents`, or remove the corresponding `-v` lines from the script for any you don't need.

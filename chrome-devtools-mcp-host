@@ -1,6 +1,6 @@
 #!/bin/sh
-# Attach chrome-devtools-mcp to a Chrome running on the *host* machine (started
-# by `make chrome` with --remote-debugging-port=9333 on the host's 127.0.0.1).
+# Attach chrome-devtools-mcp to a Chrome running on the *host* machine, reached
+# on the host's 127.0.0.1:9333 (see agents-chrome; `make chrome-start`).
 #
 # Two problems this wrapper solves:
 #   1. Inside the container, 127.0.0.1 is the container itself, not the host.

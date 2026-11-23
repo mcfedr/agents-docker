@@ -21,14 +21,43 @@ $HOME/projects/smartsuite | $HOME/projects/smartsuite/*)
     anthropic_dir=~/.config/anthropic_agents_smartsuite
     kube_dir=~/.kube_agents_smartsuite
     gcloud_dir=~/.config/gcloud_agents_smartsuite
+    azure_dir=~/.azure_agents_smartsuite
+    teams_dir=~/.config/teams-cli_agents_smartsuite
     aws_dir=~/.aws_agents_smartsuite
     docker_dir=~/.docker_agents_smartsuite
     composer_dir=~/.composer_agents_smartsuite
     glab_dir=~/.config/glab-cli_agents_smartsuite
+    atuin_config=~/.config/atuin_agents_smartsuite
+    atuin_share=~/.local/share/atuin_agents_smartsuite
     netrc=~/.netrc_smartsuite
     npmrc=~/.npmrc_smartsuite
     terraformrc=~/.terraformrc_smartsuite
-    git_ssh='ssh -i $HOME/.ssh/ss_id_ed25519'
+    ssh_dir=~/.ssh_agents_smartsuite
+    gitconfig=~/.gitconfig_agents_smartsuite
+    ;;
+$HOME/projects/edrone | $HOME/projects/edrone/*)
+    claude_dir=~/.claude_agents_edrone
+    claude_json=~/.claude_agents_edrone.json
+    opencode_config=~/.config/opencode_agents_edrone
+    opencode_share=~/.local/share/opencode_agents_edrone
+    opencode_state=~/.local/state/opencode_agents_edrone
+    gh_dir=~/.config/gh_agents_edrone
+    anthropic_dir=~/.config/anthropic_agents_edrone
+    kube_dir=~/.kube_agents_edrone
+    gcloud_dir=~/.config/gcloud_agents_edrone
+    azure_dir=~/.azure_agents_edrone
+    teams_dir=~/.config/teams-cli_agents_edrone
+    aws_dir=~/.aws_agents_edrone
+    docker_dir=~/.docker_agents_edrone
+    composer_dir=~/.composer_agents_edrone
+    glab_dir=~/.config/glab-cli_agents_edrone
+    atuin_config=~/.config/atuin_agents_edrone
+    atuin_share=~/.local/share/atuin_agents_edrone
+    netrc=~/.netrc_edrone
+    npmrc=~/.npmrc_edrone
+    terraformrc=~/.terraformrc_edrone
+    ssh_dir=~/.ssh_agents_edrone
+    gitconfig=~/.gitconfig_agents_edrone
     ;;
 $HOME/projects | $HOME/projects/*)
     claude_dir=~/.claude_agents_ekreative
@@ -40,14 +69,19 @@ $HOME/projects | $HOME/projects/*)
     anthropic_dir=~/.config/anthropic_agents_ekreative
     kube_dir=~/.kube_agents_ekreative
     gcloud_dir=~/.config/gcloud_agents_ekreative
+    azure_dir=~/.azure_agents_ekreative
+    teams_dir=~/.config/teams-cli_agents_ekreative
     aws_dir=~/.aws_agents_ekreative
     docker_dir=~/.docker_agents_ekreative
     composer_dir=~/.composer_agents_ekreative
     glab_dir=~/.config/glab-cli_agents_ekreative
+    atuin_config=~/.config/atuin_agents_ekreative
+    atuin_share=~/.local/share/atuin_agents_ekreative
     netrc=~/.netrc_ekreative
     npmrc=~/.npmrc_ekreative
     terraformrc=~/.terraformrc_ekreative
-    git_ssh='ssh -i $HOME/.ssh/ek_id_ed25519'
+    ssh_dir=~/.ssh_agents_ekreative
+    gitconfig=~/.gitconfig_agents_ekreative
     ;;
 *)
     claude_dir=~/.claude_agents
@@ -59,14 +93,19 @@ $HOME/projects | $HOME/projects/*)
     anthropic_dir=~/.config/anthropic_agents
     kube_dir=~/.kube_agents
     gcloud_dir=~/.config/gcloud_agents
+    azure_dir=~/.azure_agents
+    teams_dir=~/.config/teams-cli_agents
     aws_dir=~/.aws_agents
     docker_dir=~/.docker_agents
     composer_dir=~/.composer_agents
     glab_dir=~/.config/glab-cli_agents
+    atuin_config=~/.config/atuin_agents
+    atuin_share=~/.local/share/atuin_agents
     netrc=~/.netrc
     npmrc=~/.npmrc
     terraformrc=~/.terraformrc
-    git_ssh='ssh'
+    ssh_dir=~/.ssh_agents
+    gitconfig=~/.gitconfig_agents
     ;;
 esac
 
@@ -110,30 +149,30 @@ if [[ -z "$running" ]]; then
         -v $opencode_config:/home/agent/.config/opencode \
         -v $opencode_share:/home/agent/.local/share/opencode \
         -v $opencode_state:/home/agent/.local/state/opencode \
-        -v $netrc:/home/agent/${netrc:t}:ro \
+        -v $netrc:/home/agent/${netrc:t} \
         -v $npmrc:/home/agent/${npmrc:t} \
-        -v ~/.gitconfig:/home/agent/.gitconfig:ro \
-        -v ~/.gitconfig-ek:/home/agent/.gitconfig-ek:ro \
-        -v ~/.gitconfig-ss:/home/agent/.gitconfig-ss:ro \
+        -v $gitconfig:/home/agent/.gitconfig \
         -v ~/.gitignore_global:/Users/mcfedr/.gitignore_global:ro \
-        -v ~/.ssh_agents:/home/agent/.ssh:ro \
+        -v $ssh_dir:/home/agent/.ssh \
         -v $glab_dir:/home/agent/.config/glab-cli \
         -v $gh_dir:/home/agent/.config/gh \
         -v $anthropic_dir:/home/agent/.config/anthropic \
         -v $kube_dir:/home/agent/.kube \
         -v $gcloud_dir:/home/agent/.config/gcloud \
+        -v $azure_dir:/home/agent/.azure \
+        -v $teams_dir:/home/agent/.config/teams-cli \
         -v ~/.config/acli:/home/agent/.config/acli:ro \
-        -v ~/.config/atuin_agents:/home/agent/.config/atuin:ro \
+        -v $atuin_config:/home/agent/.config/atuin \
         -v ~/.config/starship.toml:/home/agent/.config/starship.toml:ro \
         -v $aws_dir:/home/agent/.aws \
         -v $docker_dir:/home/agent/.docker \
         -v $composer_dir:/home/agent/.composer \
         -v /var/run/docker.sock:/var/run/docker.sock \
-        -v ~/.local/share/atuin_agents:/home/agent/.local/share/atuin \
+        -v $atuin_share:/home/agent/.local/share/atuin \
         -v ~/.config/direnv:/home/agent/.config/direnv:ro \
         -v ~/.local/share/direnv:/home/agent/.local/share/direnv \
         -v ~/.local/share/uv_agents:/home/agent/.local/share/uv \
-        -v $terraformrc:/home/agent/${terraformrc:t}:ro \
+        -v $terraformrc:/home/agent/${terraformrc:t} \
         -v ~/.terraform_d_agents:/home/agent/.terraform.d \
         -v ~/.pnpm:/home/agent/.pnpm \
         -v ~/.local/share/fnm_agents/aliases:/home/agent/.local/share/fnm/aliases \
@@ -143,7 +182,7 @@ if [[ -z "$running" ]]; then
         -v ~/.rustup_agents:/home/agent/.rustup \
         -v ~/.cargo_agents:/home/agent/.cargo \
         -e PNPM_HOME=/home/agent/.pnpm \
-        -e "GIT_SSH_COMMAND=$git_ssh" \
+        -e ATUIN_CONFIG_DIR=/home/agent/.config/atuin \
         -e "NETRC=/home/agent/${netrc:t}" \
         -e "NPM_CONFIG_USERCONFIG=/home/agent/${npmrc:t}" \
         -e "TF_CLI_CONFIG_FILE=/home/agent/${terraformrc:t}" \
@@ -161,9 +200,25 @@ elif [[ "$(docker image inspect --format '{{.Id}}' "$image" 2>/dev/null)" != \
     print -u2 "note: $container predates the current $image build; run 'agents restart' to recreate it"
 fi
 
+# The container only sees Docker Desktop's VM network, so it cannot discover the
+# Mac's LAN itself. Hand it the subnet of the default-route interface (e.g.
+# 192.168.1.37/24) for TCP scans like `nmap -sT -Pn -p22 --open $HOST_LAN_CIDR`.
+lan_iface=$(route -n get default 2>/dev/null | awk '/interface:/ {print $2}')
+lan_ip=$(ipconfig getifaddr "$lan_iface" 2>/dev/null)
+lan_mask=$(ipconfig getoption "$lan_iface" subnet_mask 2>/dev/null)
+lan_cidr=
+if [[ -n "$lan_ip" && -n "$lan_mask" ]]; then
+    lan_bits=0
+    for octet in ${(s:.:)lan_mask}; do
+        while (( octet )); do (( lan_bits += octet & 1, octet >>= 1 )); done
+    done
+    lan_cidr=$lan_ip/$lan_bits
+fi
+
 # Attach an interactive login shell. Per-terminal variables are passed here (not
 # at create time) so each window gets its own current values.
 exec docker exec -it -w "$PWD" \
+    -e HOST_LAN_CIDR=$lan_cidr \
     -e TERM=$TERM \
     -e TERM_FEATURES=$TERM_FEATURES \
     -e TERM_SESSION_ID=$TERM_SESSION_ID \

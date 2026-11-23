@@ -1,0 +1,80 @@
+#!/bin/zsh
+# Host side of the agents' shared browser, run by two launchd jobs (see the
+# chrome-* targets in the Makefile):
+#
+#   connect  One per inbound connection on 127.0.0.1:9333, which launchd owns
+#            (inetd-style socket activation). Starts the browser job if it is
+#            not running, then relays the connection to Chrome's real port.
+#   serve    The browser job. Runs Chrome and quits it once nothing has been
+#            connected for CHROME_IDLE_TIMEOUT seconds; the next connection
+#            starts it again.
+#
+# The profile is the one chrome-devtools-mcp used to launch for itself, so
+# existing logins and cookies carry over. It must not be Chrome's default
+# profile: since Chrome 136 the remote debugging port is ignored there.
+set -e
+
+CHROME_BIN="${CHROME_BIN:-/Applications/Google Chrome.app/Contents/MacOS/Google Chrome}"
+CHROME_PROFILE="${CHROME_PROFILE:-$HOME/.cache/chrome-devtools-mcp/chrome-profile}"
+CHROME_BACKEND_PORT="${CHROME_BACKEND_PORT:-9334}"
+CHROME_IDLE_TIMEOUT="${CHROME_IDLE_TIMEOUT:-1800}"
+CHROME_JOB="gui/$UID/com.mcfedr.agents-chrome"
+
+case "$1" in
+connect)
+    # stdout is the client's socket, so nothing else may write to it.
+    exec 2>>/tmp/agents-chrome.log
+    # Kickstart on every attempt: if the browser job was just exiting after
+    # an idle timeout, the first kickstart is a no-op against the dying job.
+    for i in {1..60}; do
+        launchctl kickstart "$CHROME_JOB" >/dev/null
+        if nc -z 127.0.0.1 "$CHROME_BACKEND_PORT" >/dev/null 2>&1; then
+            exec nc 127.0.0.1 "$CHROME_BACKEND_PORT"
+        fi
+        sleep 0.5
+    done
+    echo "agents-chrome: Chrome did not open port $CHROME_BACKEND_PORT" >&2
+    exit 1
+    ;;
+serve)
+    # --no-startup-window keeps the browser process (and the debugging port)
+    # alive without painting a window. The first agent to open a page gets a
+    # window; closing it leaves Chrome running until the idle timeout.
+    "$CHROME_BIN" \
+        --remote-debugging-port="$CHROME_BACKEND_PORT" \
+        --user-data-dir="$CHROME_PROFILE" \
+        --no-startup-window \
+        --no-first-run \
+        --no-default-browser-check &
+    chrome=$!
+
+    # launchd stops the job with SIGTERM and then SIGKILLs what is left, so
+    # pass it on and let Chrome shut down cleanly first.
+    trap 'kill $chrome 2>/dev/null' TERM INT
+
+    # Every agent's CDP session is a long-lived connection through a connect
+    # relay, so no established connection on the backend port means no users.
+    (
+        idle_since=$SECONDS
+        while sleep 60; do
+            if lsof -nP -iTCP:"$CHROME_BACKEND_PORT" -sTCP:ESTABLISHED >/dev/null; then
+                idle_since=$SECONDS
+            elif (( SECONDS - idle_since >= CHROME_IDLE_TIMEOUT )); then
+                echo "agents-chrome: idle for ${CHROME_IDLE_TIMEOUT}s, quitting Chrome"
+                kill $chrome
+                exit
+            fi
+        done
+    ) &
+    watcher=$!
+
+    while kill -0 $chrome 2>/dev/null; do
+        wait $chrome || true
+    done
+    kill $watcher 2>/dev/null || true
+    ;;
+*)
+    echo "usage: $0 connect|serve" >&2
+    exit 64
+    ;;
+esac

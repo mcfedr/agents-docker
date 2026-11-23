@@ -27,6 +27,7 @@ RUN apt-get update \
     libpangocairo-1.0-0 \
     libpangoft2-1.0-0 \
     libpq-dev \
+    libsecret-1-0 \
     libproj-dev \
     libprotobuf-dev \
     openssh-client \
@@ -108,6 +109,8 @@ RUN --mount=type=cache,target=/home/agent/.cache/Homebrew,uid=1000,gid=1000 \
     librsvg \
     mysql-client \
     nano \
+    netcat \
+    nmap \
     node \
     opencode \
     pandoc \
@@ -119,22 +122,32 @@ RUN --mount=type=cache,target=/home/agent/.cache/Homebrew,uid=1000,gid=1000 \
     shellcheck \
     shfmt \
     socat \
+    sshpass \
     starship \
     terragrunt \
     tmux \
     uv \
+    vim \
     zsh-completions \
     " \
     && brew install $formulae \
     anthropics/tap/ant \
+    azure-cli \
     claude-code \
     codex \
     gcloud-cli \
+    openai/tools/openai \
+    sonarqube-cli \
     && brew list --formula \
     | grep -vxF "$(printf '%s\n' $formulae | sed 's|.*/||')" \
     | xargs --no-run-if-empty brew unlink
 
 RUN gcloud components install gke-gcloud-auth-plugin cloud-sql-proxy --quiet
+
+# The Teams CLI has no brew formula. Its token cache module links libsecret
+# (from apt) even when it falls back to a plaintext file, as it does here
+# without a D-Bus secret service.
+RUN npm install -g @microsoft/teams.cli
 
 # The working directory is bind-mounted from the host, where it is owned by the
 # host user's UID (e.g. 503) rather than the container's `agent` user. Docker
@@ -149,48 +162,16 @@ RUN git config --system --add safe.directory '*' \
 
 USER root
 
-ARG TARGETPLATFORM
-
-# No Linux formula for these. uv's managed Python lives under /opt rather than
+# aws-saml-auth has no brew package, and brew's keyring cannot take the
+# CodeArtifact backend. uv's managed Python lives under /opt rather than
 # ~/.local/share/uv, which is a host mount at runtime.
 ARG UV_TOOL_DIR=/opt/uv-tools UV_TOOL_BIN_DIR=/usr/local/bin UV_PYTHON_INSTALL_DIR=/opt/uv-python
-RUN uv tool install --managed-python azure-cli \
-    && uv tool install --managed-python aws-saml-auth \
+RUN uv tool install --managed-python aws-saml-auth \
     && uv tool install --managed-python keyring --with keyrings.codeartifact
-
-# Tools installed from upstream "latest" are each preceded by an ADD of the
-# release document, so a new release changes the layer hash and the install
-# re-runs instead of serving a cached layer forever.
-
-# OpenAI API CLI — goreleaser archives verified against the release checksums file.
-ADD https://api.github.com/repos/openai/openai-cli/releases/latest /tmp/openai-cli-release.json
-RUN case "$TARGETPLATFORM" in \
-        "linux/arm64") OPENAI_CLI_ARCH="arm64" ;; \
-        "linux/amd64") OPENAI_CLI_ARCH="amd64" ;; \
-        *) echo "Unsupported TARGETPLATFORM: $TARGETPLATFORM" && exit 1 ;; \
-    esac \
-    && cd /tmp \
-    && OPENAI_CLI_TAG="$(jq -re .tag_name /tmp/openai-cli-release.json)" \
-    && OPENAI_CLI_VERSION="${OPENAI_CLI_TAG#v}" \
-    && OPENAI_CLI_ARCHIVE="openai_${OPENAI_CLI_VERSION}_linux_${OPENAI_CLI_ARCH}.tar.gz" \
-    && OPENAI_CLI_SUMS="openai_${OPENAI_CLI_VERSION}_checksums.txt" \
-    && OPENAI_CLI_BASE_URL="https://github.com/openai/openai-cli/releases/download/${OPENAI_CLI_TAG}" \
-    && curl -fsSLO "${OPENAI_CLI_BASE_URL}/${OPENAI_CLI_ARCHIVE}" \
-    && curl -fsSLO "${OPENAI_CLI_BASE_URL}/${OPENAI_CLI_SUMS}" \
-    && grep "  ${OPENAI_CLI_ARCHIVE}$" "${OPENAI_CLI_SUMS}" | sha256sum -c \
-    && tar -xzf "${OPENAI_CLI_ARCHIVE}" -C /usr/local/bin openai \
-    && mkdir -p /usr/local/share/zsh/site-functions \
-    && openai @completion zsh > /usr/local/share/zsh/site-functions/_openai \
-    && rm -f "${OPENAI_CLI_ARCHIVE}" "${OPENAI_CLI_SUMS}"
 
 # Copilot CLI
 # checksum fail
 # RUN curl -fsSL https://gh.io/copilot-install | bash
-
-# SonarQube CLI
-ADD https://binaries.sonarsource.com/Distribution/sonarqube-cli/stable.version /tmp/sonarqube-cli-version
-RUN curl -o- https://raw.githubusercontent.com/SonarSource/sonarqube-cli/refs/heads/master/user-scripts/install.sh | bash \
-    && mv ~/.local/share/sonarqube-cli/bin/sonar /usr/local/bin/sonar
 
 # chrome-devtools-mcp bridge to a Chrome running on the host (see script header).
 COPY --chmod=755 chrome-devtools-mcp-host /usr/local/bin/chrome-devtools-mcp-host

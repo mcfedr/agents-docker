@@ -16,68 +16,51 @@ run:
 # agents share the browser without contending for the profile lock that
 # chrome-devtools-mcp takes when it launches Chrome itself.
 #
-# The profile is the one chrome-devtools-mcp used to launch for itself, so
-# existing logins and cookies carry over. It must not be Chrome's default
-# profile: since Chrome 136 the remote debugging port is ignored there.
-#
-# Managed as a launchd agent for crash-restart (KeepAlive) supervision while
-# logged in. The plist is bootstrapped from the repo, NOT installed into
-# ~/Library/LaunchAgents, so it does not auto-load — it stays gone after
-# logout/reboot until you run `make chrome-start` again.
+# Two launchd jobs (see agents-chrome): one owns CHROME_PORT and starts the
+# browser on the first connection, the other runs Chrome on a private port and
+# quits it after half an hour with no agent connected. The plists are
+# bootstrapped from /tmp, NOT installed into ~/Library/LaunchAgents, so they do
+# not auto-load: they stay gone after logout/reboot until `make chrome-start` again.
 CHROME_LOG := /tmp/agents-chrome.log
 CHROME_LABEL := com.mcfedr.agents-chrome
-CHROME_PLIST_TMPL := $(CURDIR)/com.mcfedr.agents-chrome.plist
-CHROME_PLIST := /tmp/agents-chrome.plist
+CHROME_SOCKET_LABEL := com.mcfedr.agents-chrome-socket
 LAUNCHD_DOMAIN := gui/$(shell id -u)
-CHROME_BIN ?= /Applications/Google Chrome.app/Contents/MacOS/Google Chrome
-CHROME_PROFILE ?= $(HOME_DIR)/.cache/chrome-devtools-mcp/chrome-profile
 # Not 9222: other Chromium builds (Brave in particular) claim it, and a browser
 # that gets there first takes IPv4 loopback while ours silently falls back to
 # [::1], which containers cannot reach through host.docker.internal.
 CHROME_PORT ?= 9333
 
-# Run in the foreground (no launchd). This is the single source of truth for the
-# browser command; `chrome-start` runs the very same target under launchd.
-#
-# --no-startup-window keeps the browser process (and the debugging port) alive
-# without painting a window, so a browser supervised around the clock does not
-# sit on screen. The first agent to open a page gets a window; closing it leaves
-# Chrome running and ready. Swap in --headless=new to never see it at all, at
-# the cost of not being able to watch or log in interactively.
-chrome:
-	"$(CHROME_BIN)" \
-		--remote-debugging-port=$(CHROME_PORT) \
-		--user-data-dir="$(CHROME_PROFILE)" \
-		--no-startup-window \
-		--no-first-run \
-		--no-default-browser-check
-
-# Start the browser under launchd in the background (idempotent). Bakes the repo
-# path into a /tmp copy of the plist template, which then runs `make chrome`.
+# Load both jobs (idempotent). Chrome itself only starts once an agent connects.
 chrome-start:
-	@if launchctl print $(LAUNCHD_DOMAIN)/$(CHROME_LABEL) >/dev/null 2>&1; then \
-		echo "chrome already running ($(CHROME_LABEL))"; \
-	else \
-		sed 's|__WORKDIR__|$(CURDIR)|' $(CHROME_PLIST_TMPL) > $(CHROME_PLIST) && \
-		launchctl bootstrap $(LAUNCHD_DOMAIN) $(CHROME_PLIST) && \
-		echo "chrome started ($(CHROME_LABEL)), logs: $(CHROME_LOG)"; \
-	fi
+	@set -e; \
+	for label in $(CHROME_LABEL) $(CHROME_SOCKET_LABEL); do \
+		if launchctl print $(LAUNCHD_DOMAIN)/$$label >/dev/null 2>&1; then \
+			echo "$$label already loaded"; \
+		else \
+			sed -e 's|__WORKDIR__|$(CURDIR)|' -e 's|__PORT__|$(CHROME_PORT)|' $(CURDIR)/$$label.plist > /tmp/$$label.plist; \
+			launchctl bootstrap $(LAUNCHD_DOMAIN) /tmp/$$label.plist; \
+			echo "$$label loaded"; \
+		fi; \
+	done; \
+	echo "logs: $(CHROME_LOG)"
 
-# Stop and unload the backgrounded browser.
+# Unload both jobs, quitting Chrome if it is running.
 chrome-stop:
-	@if launchctl print $(LAUNCHD_DOMAIN)/$(CHROME_LABEL) >/dev/null 2>&1; then \
-		launchctl bootout $(LAUNCHD_DOMAIN)/$(CHROME_LABEL) && \
-		echo "chrome stopped ($(CHROME_LABEL))"; \
-	else \
-		echo "chrome not running"; \
-	fi
+	@for label in $(CHROME_SOCKET_LABEL) $(CHROME_LABEL); do \
+		if launchctl print $(LAUNCHD_DOMAIN)/$$label >/dev/null 2>&1; then \
+			launchctl bootout $(LAUNCHD_DOMAIN)/$$label && echo "$$label unloaded"; \
+		else \
+			echo "$$label not loaded"; \
+		fi; \
+	done
 
-# Show status of the launchd agent.
 chrome-status:
-	@if launchctl print $(LAUNCHD_DOMAIN)/$(CHROME_LABEL) >/dev/null 2>&1; then \
-		echo "running ($(CHROME_LABEL)), logs: $(CHROME_LOG)"; \
+	@if ! launchctl print $(LAUNCHD_DOMAIN)/$(CHROME_SOCKET_LABEL) >/dev/null 2>&1; then \
+		echo "not loaded"; \
+	elif launchctl print $(LAUNCHD_DOMAIN)/$(CHROME_LABEL) 2>/dev/null | grep -q 'state = running'; then \
+		echo "listening on $(CHROME_PORT), chrome running, logs: $(CHROME_LOG)"; \
 	else \
-		echo "not running"; \
+		echo "listening on $(CHROME_PORT), chrome idle, logs: $(CHROME_LOG)"; \
 	fi
 
 chrome-logs:
@@ -104,51 +87,84 @@ docker-credhelpers:
 	}; \
 	merge $(HOME_DIR)/.docker_agents/config.json '$(CREDHELPERS)'; \
 	merge $(HOME_DIR)/.docker_agents_smartsuite/config.json '$(CREDHELPERS_SMARTSUITE)'; \
-	merge $(HOME_DIR)/.docker_agents_ekreative/config.json '$(CREDHELPERS_EKREATIVE)'
+	merge $(HOME_DIR)/.docker_agents_ekreative/config.json '$(CREDHELPERS_EKREATIVE)'; \
+	merge $(HOME_DIR)/.docker_agents_edrone/config.json '$(CREDHELPERS)'
 
-.PHONY: build chrome chrome-start chrome-stop chrome-status chrome-logs install docker-credhelpers
+.PHONY: build chrome-start chrome-stop chrome-status chrome-logs install docker-credhelpers
 
 install: docker-credhelpers
 	mkdir -p $(HOME_DIR)/.claude_agents
 	mkdir -p $(HOME_DIR)/.claude_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.claude_agents_ekreative
+	mkdir -p $(HOME_DIR)/.claude_agents_edrone
 	mkdir -p $(HOME_DIR)/.codex_agents
 	mkdir -p $(HOME_DIR)/.config/opencode_agents
 	mkdir -p $(HOME_DIR)/.config/opencode_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.config/opencode_agents_ekreative
+	mkdir -p $(HOME_DIR)/.config/opencode_agents_edrone
 	mkdir -p $(HOME_DIR)/.local/share/opencode_agents
 	mkdir -p $(HOME_DIR)/.local/share/opencode_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.local/share/opencode_agents_ekreative
+	mkdir -p $(HOME_DIR)/.local/share/opencode_agents_edrone
 	mkdir -p $(HOME_DIR)/.local/state/opencode_agents
 	mkdir -p $(HOME_DIR)/.local/state/opencode_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.local/state/opencode_agents_ekreative
+	mkdir -p $(HOME_DIR)/.local/state/opencode_agents_edrone
 	mkdir -p $(HOME_DIR)/.aws_agents
 	mkdir -p $(HOME_DIR)/.aws_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.aws_agents_ekreative
+	mkdir -p $(HOME_DIR)/.aws_agents_edrone
 	mkdir -p $(HOME_DIR)/.docker_agents
 	mkdir -p $(HOME_DIR)/.docker_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.docker_agents_ekreative
+	mkdir -p $(HOME_DIR)/.docker_agents_edrone
 	mkdir -p $(HOME_DIR)/.composer_agents
 	mkdir -p $(HOME_DIR)/.composer_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.composer_agents_ekreative
+	mkdir -p $(HOME_DIR)/.composer_agents_edrone
+	mkdir -p $(HOME_DIR)/.azure_agents
+	mkdir -p $(HOME_DIR)/.azure_agents_smartsuite
+	mkdir -p $(HOME_DIR)/.azure_agents_ekreative
+	mkdir -p $(HOME_DIR)/.azure_agents_edrone
+	mkdir -p $(HOME_DIR)/.config/teams-cli_agents
+	mkdir -p $(HOME_DIR)/.config/teams-cli_agents_smartsuite
+	mkdir -p $(HOME_DIR)/.config/teams-cli_agents_ekreative
+	mkdir -p $(HOME_DIR)/.config/teams-cli_agents_edrone
 	mkdir -p $(HOME_DIR)/.terraform_d_agents/plugin-cache
 	mkdir -p $(HOME_DIR)/.ssh_agents
+	mkdir -p $(HOME_DIR)/.ssh_agents_smartsuite
+	mkdir -p $(HOME_DIR)/.ssh_agents_ekreative
+	mkdir -p $(HOME_DIR)/.ssh_agents_edrone
 	mkdir -p $(HOME_DIR)/.config/glab-cli_agents
 	mkdir -p $(HOME_DIR)/.config/glab-cli_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.config/glab-cli_agents_ekreative
+	mkdir -p $(HOME_DIR)/.config/glab-cli_agents_edrone
 	mkdir -p $(HOME_DIR)/.config/gh_agents
 	mkdir -p $(HOME_DIR)/.config/gh_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.config/gh_agents_ekreative
+	mkdir -p $(HOME_DIR)/.config/gh_agents_edrone
+	mkdir -p $(HOME_DIR)/.config/anthropic_agents
+	mkdir -p $(HOME_DIR)/.config/anthropic_agents_smartsuite
+	mkdir -p $(HOME_DIR)/.config/anthropic_agents_ekreative
+	mkdir -p $(HOME_DIR)/.config/anthropic_agents_edrone
 	mkdir -p $(HOME_DIR)/.kube_agents
 	mkdir -p $(HOME_DIR)/.kube_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.kube_agents_ekreative
+	mkdir -p $(HOME_DIR)/.kube_agents_edrone
 	mkdir -p $(HOME_DIR)/.config/gcloud_agents
 	mkdir -p $(HOME_DIR)/.config/gcloud_agents_smartsuite
 	mkdir -p $(HOME_DIR)/.config/gcloud_agents_ekreative
+	mkdir -p $(HOME_DIR)/.config/gcloud_agents_edrone
 	mkdir -p $(HOME_DIR)/.config/acli
 	mkdir -p $(HOME_DIR)/.config/atuin_agents
+	mkdir -p $(HOME_DIR)/.config/atuin_agents_smartsuite
+	mkdir -p $(HOME_DIR)/.config/atuin_agents_ekreative
+	mkdir -p $(HOME_DIR)/.config/atuin_agents_edrone
 	mkdir -p $(HOME_DIR)/.config/direnv
 	mkdir -p $(HOME_DIR)/.local/share/atuin_agents
+	mkdir -p $(HOME_DIR)/.local/share/atuin_agents_smartsuite
+	mkdir -p $(HOME_DIR)/.local/share/atuin_agents_ekreative
+	mkdir -p $(HOME_DIR)/.local/share/atuin_agents_edrone
 	mkdir -p $(HOME_DIR)/.local/share/direnv
 	mkdir -p $(HOME_DIR)/.local/share/uv_agents
 	mkdir -p $(HOME_DIR)/.pnpm_agents
@@ -161,20 +177,25 @@ install: docker-credhelpers
 	touch $(HOME_DIR)/.claude_agents.json
 	touch $(HOME_DIR)/.claude_agents_smartsuite.json
 	touch $(HOME_DIR)/.claude_agents_ekreative.json
+	touch $(HOME_DIR)/.claude_agents_edrone.json
 	touch $(HOME_DIR)/.netrc
 	touch $(HOME_DIR)/.netrc_smartsuite
 	touch $(HOME_DIR)/.netrc_ekreative
+	touch $(HOME_DIR)/.netrc_edrone
 	touch $(HOME_DIR)/.npmrc
 	touch $(HOME_DIR)/.npmrc_smartsuite
 	touch $(HOME_DIR)/.npmrc_ekreative
-	touch $(HOME_DIR)/.gitconfig
-	touch $(HOME_DIR)/.gitconfig-ek
-	touch $(HOME_DIR)/.gitconfig-ss
+	touch $(HOME_DIR)/.npmrc_edrone
+	touch $(HOME_DIR)/.gitconfig_agents
+	touch $(HOME_DIR)/.gitconfig_agents_smartsuite
+	touch $(HOME_DIR)/.gitconfig_agents_ekreative
+	touch $(HOME_DIR)/.gitconfig_agents_edrone
 	touch $(HOME_DIR)/.gitignore_global
 	touch $(HOME_DIR)/.config/starship.toml
 	touch $(HOME_DIR)/.terraformrc
 	touch $(HOME_DIR)/.terraformrc_smartsuite
 	touch $(HOME_DIR)/.terraformrc_ekreative
+	touch $(HOME_DIR)/.terraformrc_edrone
 	touch $(HOME_DIR)/.claude/CLAUDE.md
 	ln -sfn $(CURDIR)/agents $(LOCAL_BIN)/agents
 	launchctl setenv OLLAMA_HOST "0.0.0.0:11434"
